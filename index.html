@@ -20,7 +20,7 @@ dialog{border:0;border-radius:20px;width:min(92%,520px);padding:20px}dialog::bac
 small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;font-size:13px}.status{padding:10px;border-radius:12px;background:#f1f1f3;margin-bottom:12px;display:none}.preview{max-height:150px;max-width:100%;border-radius:12px;margin:0 0 12px}
 </style></head>
 <body>
-<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V9</p>
+<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V10</p>
 <div class="card"><div class="label">Spending</div><div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0"><button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button><div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div><button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button></div><div class="total" id="monthTotal">$0.00</div><div class="muted">Total spent in selected month</div></div>
 <div class="grid">
 <label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
@@ -41,21 +41,20 @@ small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;fo
 <option>Bills</option><option>Gas / Car</option><option>Medical</option><option>Entertainment</option>
 <option>Personal Care</option><option>Pets</option><option>Real Estate</option><option>Sipsters</option><option>Other</option>
 </select>
-<div style="margin-top:12px">
-<label style="display:flex;align-items:center;gap:8px;font-weight:700">
-<input id="splitToggle" type="checkbox" style="width:auto" onchange="toggleSplit()"> Split this receipt between categories
-</label>
-<div id="splitBox" style="display:none;margin-top:10px;padding:12px;border:1px solid #ddd;border-radius:12px">
-<div class="muted" style="margin-bottom:8px">Enter only the portions that belong in different categories. The split amounts must equal the receipt total.</div>
-<div id="splitRows"></div>
-<button type="button" class="secondary" onclick="addSplitRow()">+ Add another category</button>
-<div id="splitStatus" class="status"></div>
-</div>
-</div>
 <label>Store / note <small>(optional)</small></label><input id="merchant" placeholder="Costco, Target, etc.">
 <label>Date</label><input id="date" type="date" required>
 <input id="receiptData" type="hidden">
 <div class="grid"><button type="button" class="secondary" onclick="form.close()">Cancel</button><button type="submit">Save</button></div>
+</form></dialog>
+
+<dialog id="splitDialog">
+<form method="dialog" onsubmit="saveSplit(event)">
+<h2 style="margin-top:0">Split expense</h2>
+<div id="splitOriginal" class="muted" style="margin-bottom:12px"></div>
+<div id="splitRows"></div>
+<button type="button" class="secondary" onclick="addSplitRow()">+ Add another category</button>
+<div id="splitStatus" style="padding:10px 0;font-weight:700"></div>
+<div class="grid"><button type="button" class="secondary" onclick="$('splitDialog').close()">Cancel</button><button type="submit">Save Split</button></div>
 </form></dialog>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -67,7 +66,6 @@ function today(){return new Date().toISOString().slice(0,10)}
 function openForm(receipt=''){
  $('formTitle').textContent=receipt?'Receipt expense':'Add expense';
  $('amount').value=''; $('merchant').value=''; $('date').value=today(); $('receiptData').value='';
- $('splitToggle').checked=false; $('splitBox').style.display='none'; $('splitRows').innerHTML=''; $('category').disabled=false;
  $('ocrStatus').style.display='none'; $('receiptPreview').style.display=receipt?'block':'none'; $('receiptPreview').src=receipt||'';
  $('form').showModal();
 }
@@ -207,52 +205,55 @@ $('receipt').addEventListener('change',e=>{
  const r=new FileReader(); r.onload=()=>{openForm(r.result);scanReceipt(r.result)}; r.readAsDataURL(f); e.target.value='';
 });
 
-const SPLIT_OPTIONS=`<option>Groceries</option><option>Dining Out</option><option>Shopping</option><option>Home</option><option>Bills</option><option>Gas / Car</option><option>Medical</option><option>Entertainment</option><option>Personal Care</option><option>Pets</option><option>Real Estate</option><option>Sipsters</option><option>Other</option>`;
+function saveExpense(e){
+ e.preventDefault();
+ const amount=+$('amount').value, merchant=$('merchant').value.trim(), date=$('date').value;
+ expenses.unshift({id:Date.now(),amount,category:$('category').value,merchant,date,receipt:'',receiptTotal:amount,split:false});
+ localStorage.setItem(KEY,JSON.stringify(expenses));
+ const parts=date.split('-').map(Number);if(parts.length===3)viewDate=new Date(parts[0],parts[1]-1,1);
+ $('form').close(); render();
+}
+
+const SPLIT_CATEGORIES=['Groceries','Dining Out','Shopping','Home','Bills','Gas / Car','Medical','Entertainment','Personal Care','Pets','Real Estate','Sipsters','Other'];
+let splitExpenseId=null;
+function openSplit(id){
+ const x=expenses.find(e=>e.id===id); if(!x)return;
+ splitExpenseId=id; $('splitRows').innerHTML='';
+ $('splitOriginal').textContent=(x.merchant||'Expense')+' · '+money(x.amount)+' · '+x.date;
+ addSplitRow(x.category,''); addSplitRow('Other','');
+ $('splitDialog').showModal(); updateSplitStatus();
+}
 function addSplitRow(category='',amount=''){
  const row=document.createElement('div');
  row.className='splitRow';
- row.style.cssText='display:grid;grid-template-columns:1fr 110px 34px;gap:7px;margin-bottom:8px;align-items:center';
- row.innerHTML=`<select class="splitCat">${SPLIT_OPTIONS}</select><input class="splitAmt" type="number" min="0" step=".01" inputmode="decimal" placeholder="$0.00"><button type="button" class="danger" style="padding:8px" onclick="this.parentElement.remove();updateSplitStatus()">×</button>`;
- row.querySelector('.splitCat').value=category||$('category').value;
- row.querySelector('.splitAmt').value=amount;
- row.querySelector('.splitAmt').addEventListener('input',updateSplitStatus);
- $('splitRows').appendChild(row); updateSplitStatus();
-}
-function toggleSplit(){
- const on=$('splitToggle').checked;
- $('splitBox').style.display=on?'block':'none';
- $('category').disabled=on;
- if(on&&!document.querySelector('.splitRow')){addSplitRow($('category').value,'');addSplitRow('Other','');}
- updateSplitStatus();
+ row.style.cssText='display:grid;grid-template-columns:1fr 105px 30px;gap:7px;margin-bottom:8px;align-items:center';
+ const sel=document.createElement('select'); sel.className='splitCat';
+ SPLIT_CATEGORIES.forEach(c=>{const o=document.createElement('option');o.textContent=c;o.value=c;sel.appendChild(o)});
+ sel.value=category||'Other';
+ const amt=document.createElement('input'); amt.className='splitAmt';amt.type='number';amt.min='0';amt.step='.01';amt.inputMode='decimal';amt.placeholder='0.00';
+ amt.value=amount; amt.addEventListener('input',updateSplitStatus);
+ const rem=document.createElement('button');rem.type='button';rem.className='danger';rem.textContent='×';
+ rem.onclick=()=>{row.remove();updateSplitStatus()};
+ row.append(sel,amt,rem); $('splitRows').appendChild(row); updateSplitStatus();
 }
 function updateSplitStatus(){
- if(!$('splitToggle').checked)return;
- const total=+$('amount').value||0;
- const used=[...document.querySelectorAll('.splitAmt')].reduce((s,x)=>s+(+x.value||0),0);
- const diff=Math.round((total-used)*100)/100;
- $('splitStatus').textContent=Math.abs(diff)<.005?'✓ Split matches receipt total':(diff>0?money(diff)+' still needs a category':money(-diff)+' over the receipt total');
+ const x=expenses.find(e=>e.id===splitExpenseId); if(!x)return;
+ const used=[...document.querySelectorAll('#splitRows .splitAmt')].reduce((s,n)=>s+(+n.value||0),0);
+ const diff=Math.round((x.amount-used)*100)/100;
+ $('splitStatus').textContent=Math.abs(diff)<.005?'✓ Split matches '+money(x.amount):(diff>0?money(diff)+' left to assign':money(-diff)+' over the total');
 }
-$('amount').addEventListener('input',updateSplitStatus);
-function saveExpense(e){
+function saveSplit(e){
  e.preventDefault();
- const total=+$('amount').value, merchant=$('merchant').value.trim(), date=$('date').value, base=Date.now();
- let newItems=[];
- if($('splitToggle').checked){
-   const rows=[...document.querySelectorAll('.splitRow')];
-   const splitTotal=rows.reduce((s,r)=>s+(+r.querySelector('.splitAmt').value||0),0);
-   if(!rows.length||Math.abs(splitTotal-total)>.005){alert('Your split amounts need to equal the receipt total before saving.');return;}
-   newItems=rows.filter(r=>(+r.querySelector('.splitAmt').value||0)>0).map((r,i)=>({
-     id:base+i,amount:+r.querySelector('.splitAmt').value,category:r.querySelector('.splitCat').value,
-     merchant,date,receipt:'',receiptTotal:total,split:true
-   }));
- }else{
-   newItems=[{id:base,amount:total,category:$('category').value,merchant,date,receipt:'',receiptTotal:total,split:false}];
- }
- expenses.unshift(...newItems);
- localStorage.setItem(KEY,JSON.stringify(expenses));
- const parts=date.split('-').map(Number);if(parts.length===3)viewDate=new Date(parts[0],parts[1]-1,1);
- $('splitToggle').checked=false;$('splitBox').style.display='none';$('splitRows').innerHTML='';$('category').disabled=false;
- $('form').close(); render();
+ const x=expenses.find(e=>e.id===splitExpenseId); if(!x)return;
+ const rows=[...document.querySelectorAll('#splitRows .splitRow')];
+ const total=rows.reduce((s,r)=>s+(+r.querySelector('.splitAmt').value||0),0);
+ if(Math.abs(total-x.amount)>.005){alert('The split amounts need to equal '+money(x.amount)+'.');return;}
+ const pieces=rows.filter(r=>(+r.querySelector('.splitAmt').value||0)>0);
+ if(pieces.length<2){alert('Add at least two amounts to split this expense.');return;}
+ const idx=expenses.findIndex(e=>e.id===splitExpenseId), base=Date.now();
+ const repl=pieces.map((r,i)=>({id:base+i,amount:+r.querySelector('.splitAmt').value,category:r.querySelector('.splitCat').value,merchant:x.merchant,date:x.date,receipt:'',receiptTotal:x.amount,split:true}));
+ expenses.splice(idx,1,...repl); localStorage.setItem(KEY,JSON.stringify(expenses));
+ $('splitDialog').close(); render();
 }
 function del(id){if(confirm('Delete this expense?')){expenses=expenses.filter(x=>x.id!==id);localStorage.setItem(KEY,JSON.stringify(expenses));render()}}
 let viewDate=new Date();
@@ -265,7 +266,7 @@ function render(){
  const sums={};m.forEach(x=>sums[x.category]=(sums[x.category]||0)+x.amount);const max=Math.max(1,...Object.values(sums));
  $('cats').innerHTML=Object.entries(sums).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<div style="margin:10px 0"><div class="row" style="padding:0;border:0"><span>${c}</span><b>${money(v)}</b></div><div class="catbar"><i style="width:${v/max*100}%"></i></div></div>`).join('')||'<div class="muted">No spending recorded for this month.</div>';
  const recent=m.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).slice(0,30);
- $('txns').innerHTML=recent.map(x=>`<div class="row"><div><b>${x.merchant||x.category}</b><div class="muted">${x.date} · ${x.category}</div></div><div style="text-align:right"><div class="amt">${money(x.amount)}</div><button class="danger" onclick="del(${x.id})">delete</button></div></div>`).join('')||'<div class="muted">No expenses in this month.</div>';
+ $('txns').innerHTML=recent.map(x=>`<div class="row"><div><b>${x.merchant||x.category}</b><div class="muted">${x.date} · ${x.category}</div></div><div style="text-align:right"><div class="amt">${money(x.amount)}</div><button class="danger" onclick="openSplit(${x.id})">split</button> <button class="danger" onclick="del(${x.id})">delete</button></div></div>`).join('')||'<div class="muted">No expenses in this month.</div>';
 }
 
 function downloadFile(name,content,type){
@@ -288,7 +289,7 @@ function exportExcel(){
  downloadFile('SpendSnap_Expenses.csv',csv,'text/csv;charset=utf-8');
 }
 function exportBackup(){
- const data={app:'SpendSnap',version:7,exportedAt:new Date().toISOString(),expenses};
+ const data={app:'SpendSnap',version:10,exportedAt:new Date().toISOString(),expenses};
  downloadFile('SpendSnap_Backup.json',JSON.stringify(data,null,2),'application/json');
 }
 function restoreBackup(ev){

@@ -21,7 +21,7 @@ small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;fo
 </style></head>
 <body>
 <h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done.</p>
-<div class="card"><div class="label">Spent this month</div><div class="total" id="monthTotal">$0.00</div><div class="muted" id="monthName"></div></div>
+<div class="card"><div class="label">Spending</div><div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0"><button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button><div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div><button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button></div><div class="total" id="monthTotal">$0.00</div><div class="muted">Total spent in selected month</div></div>
 <div class="grid">
 <label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
 <button onclick="openForm()">✏️ Enter Expense</button>
@@ -61,20 +61,15 @@ function openForm(receipt=''){
 }
 function parseReceipt(text){
  const lines=text.split(/\n/).map(s=>s.trim()).filter(Boolean);
- const priority=lines.filter(l=>/\b(grand\s*total|amount\s*due|balance\s*due|total)\b/i.test(l) && !/\b(subtotal|tax|savings)\b/i.test(l));
+ const priority=lines.filter(l=>/\b(grand\s*total|amount\s*due|balance\s*due|total)\b/i.test(l)&&!/\b(subtotal|tax|savings)\b/i.test(l));
  function nums(line){return [...line.matchAll(/(?:\$?\s*)(\d{1,5}[.,]\d{2})\b/g)].map(m=>+m[1].replace(',','.'))}
- let candidates=[];
- priority.forEach(l=>candidates.push(...nums(l)));
- if(!candidates.length){
-   const bottom=lines.slice(Math.max(0,lines.length-12));
-   bottom.forEach(l=>{if(!/\b(tax|subtotal|change|cash|tender|savings)\b/i.test(l)) candidates.push(...nums(l))});
- }
+ let candidates=[]; priority.forEach(l=>candidates.push(...nums(l)));
+ if(!candidates.length) lines.slice(-12).forEach(l=>{if(!/\b(tax|subtotal|change|cash|tender|savings)\b/i.test(l))candidates.push(...nums(l))});
  const amount=candidates.length?Math.max(...candidates):null;
- let merchant='';
- for(const l of lines.slice(0,6)){
-   if(/[A-Za-z]{3}/.test(l) && !/\b(receipt|store|tel|phone|www|http)\b/i.test(l)){merchant=l.replace(/[^\w &'#.-]/g,' ').replace(/\s+/g,' ').trim().slice(0,50);break}
- }
- return {amount,merchant};
+ let merchant=''; for(const l of lines.slice(0,6)){if(/[A-Za-z]{3}/.test(l)&&!/\b(receipt|store|tel|phone|www|http)\b/i.test(l)){merchant=l.replace(/[^\w &'#.-]/g,' ').replace(/\s+/g,' ').trim().slice(0,50);break}}
+ let receiptDate=null;
+ for(const l of lines){for(const m of l.matchAll(/\b(0?[1-9]|1[0-2])[\/\-.](0?[1-9]|[12]\d|3[01])[\/\-.]((?:19|20)?\d{2})\b/g)){let y=+m[3];if(y<100)y+=y>=70?1900:2000;let mo=+m[1],d=+m[2],dt=new Date(y,mo-1,d);if(dt.getFullYear()===y&&dt.getMonth()===mo-1&&dt.getDate()===d){receiptDate=`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;break}}if(receiptDate)break}
+ return {amount,merchant,date:receiptDate};
 }
 async function scanReceipt(data){
  const s=$('ocrStatus'); s.style.display='block'; s.textContent='Reading receipt…';
@@ -86,7 +81,9 @@ async function scanReceipt(data){
    const found=parseReceipt(result.data.text||'');
    if(found.amount) $('amount').value=found.amount.toFixed(2);
    if(found.merchant) $('merchant').value=found.merchant;
-   s.textContent=found.amount?'I found '+money(found.amount)+'. Check it, pick a category, and save.':'I couldn’t confidently find the total. Enter the amount, pick a category, and save.';
+   if(found.date) $('date').value=found.date;
+   const bits=[]; if(found.amount)bits.push(money(found.amount)); if(found.date)bits.push(new Date(found.date+'T12:00:00').toLocaleDateString('en-US'));
+   s.textContent=bits.length?'I found '+bits.join(' and ')+'. Check them, choose a category, and save.':'I couldn’t confidently read the total/date. Enter or correct them, choose a category, and save.';
  }catch(err){
    s.textContent='Receipt reading didn’t cooperate. Enter the amount manually, pick a category, and save.';
  }
@@ -105,14 +102,16 @@ function saveExpense(e){
  $('form').close(); render();
 }
 function del(id){if(confirm('Delete this expense?')){expenses=expenses.filter(x=>x.id!==id);localStorage.setItem(KEY,JSON.stringify(expenses));render()}}
+let viewDate=new Date();
+function changeMonth(delta){viewDate=new Date(viewDate.getFullYear(),viewDate.getMonth()+delta,1);render()}
 function render(){
- const now=new Date(), ym=now.toISOString().slice(0,7), m=expenses.filter(x=>x.date.startsWith(ym));
- $('monthName').textContent=now.toLocaleString('en-US',{month:'long',year:'numeric'});
+ const ym=`${viewDate.getFullYear()}-${String(viewDate.getMonth()+1).padStart(2,'0')}`,m=expenses.filter(x=>x.date.startsWith(ym));
+ $('monthName').textContent=viewDate.toLocaleString('en-US',{month:'long',year:'numeric'});
  $('monthTotal').textContent=money(m.reduce((s,x)=>s+x.amount,0));
- const sums={}; m.forEach(x=>sums[x.category]=(sums[x.category]||0)+x.amount);
- const max=Math.max(1,...Object.values(sums));
- $('cats').innerHTML=Object.entries(sums).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<div style="margin:10px 0"><div class="row" style="padding:0;border:0"><span>${c}</span><b>${money(v)}</b></div><div class="catbar"><i style="width:${v/max*100}%"></i></div></div>`).join('')||'<div class="muted">Nothing yet. Your wallet is innocent.</div>';
- $('txns').innerHTML=expenses.slice(0,30).map(x=>`<div class="row"><div><b>${x.merchant||x.category}</b><div class="muted">${x.date} · ${x.category}${x.receipt?' · 📎 receipt':''}</div></div><div style="text-align:right"><div class="amt">${money(x.amount)}</div><button class="danger" onclick="del(${x.id})">delete</button></div></div>`).join('')||'<div class="muted">Add your first expense above.</div>';
+ const sums={};m.forEach(x=>sums[x.category]=(sums[x.category]||0)+x.amount);const max=Math.max(1,...Object.values(sums));
+ $('cats').innerHTML=Object.entries(sums).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<div style="margin:10px 0"><div class="row" style="padding:0;border:0"><span>${c}</span><b>${money(v)}</b></div><div class="catbar"><i style="width:${v/max*100}%"></i></div></div>`).join('')||'<div class="muted">No spending recorded for this month.</div>';
+ const recent=m.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).slice(0,30);
+ $('txns').innerHTML=recent.map(x=>`<div class="row"><div><b>${x.merchant||x.category}</b><div class="muted">${x.date} · ${x.category}${x.receipt?' · 📎 receipt':''}</div></div><div style="text-align:right"><div class="amt">${money(x.amount)}</div><button class="danger" onclick="del(${x.id})">delete</button></div></div>`).join('')||'<div class="muted">No expenses in this month.</div>';
 }
 render();
 </script></body></html>

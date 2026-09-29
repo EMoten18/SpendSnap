@@ -20,7 +20,7 @@ dialog{border:0;border-radius:20px;width:min(92%,520px);padding:20px}dialog::bac
 small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;font-size:13px}.status{padding:10px;border-radius:12px;background:#f1f1f3;margin-bottom:12px;display:none}.preview{max-height:150px;max-width:100%;border-radius:12px;margin:0 0 12px}
 </style></head>
 <body>
-<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V8</p>
+<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V9</p>
 <div class="card"><div class="label">Spending</div><div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0"><button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button><div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div><button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button></div><div class="total" id="monthTotal">$0.00</div><div class="muted">Total spent in selected month</div></div>
 <div class="grid">
 <label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
@@ -41,6 +41,17 @@ small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;fo
 <option>Bills</option><option>Gas / Car</option><option>Medical</option><option>Entertainment</option>
 <option>Personal Care</option><option>Pets</option><option>Real Estate</option><option>Sipsters</option><option>Other</option>
 </select>
+<div style="margin-top:12px">
+<label style="display:flex;align-items:center;gap:8px;font-weight:700">
+<input id="splitToggle" type="checkbox" style="width:auto" onchange="toggleSplit()"> Split this receipt between categories
+</label>
+<div id="splitBox" style="display:none;margin-top:10px;padding:12px;border:1px solid #ddd;border-radius:12px">
+<div class="muted" style="margin-bottom:8px">Enter only the portions that belong in different categories. The split amounts must equal the receipt total.</div>
+<div id="splitRows"></div>
+<button type="button" class="secondary" onclick="addSplitRow()">+ Add another category</button>
+<div id="splitStatus" class="status"></div>
+</div>
+</div>
 <label>Store / note <small>(optional)</small></label><input id="merchant" placeholder="Costco, Target, etc.">
 <label>Date</label><input id="date" type="date" required>
 <input id="receiptData" type="hidden">
@@ -55,7 +66,8 @@ function money(n){return new Intl.NumberFormat('en-US',{style:'currency',currenc
 function today(){return new Date().toISOString().slice(0,10)}
 function openForm(receipt=''){
  $('formTitle').textContent=receipt?'Receipt expense':'Add expense';
- $('amount').value=''; $('merchant').value=''; $('date').value=today(); $('receiptData').value=receipt;
+ $('amount').value=''; $('merchant').value=''; $('date').value=today(); $('receiptData').value='';
+ $('splitToggle').checked=false; $('splitBox').style.display='none'; $('splitRows').innerHTML=''; $('category').disabled=false;
  $('ocrStatus').style.display='none'; $('receiptPreview').style.display=receipt?'block':'none'; $('receiptPreview').src=receipt||'';
  $('form').showModal();
 }
@@ -194,15 +206,52 @@ $('receipt').addEventListener('change',e=>{
  const f=e.target.files[0]; if(!f)return;
  const r=new FileReader(); r.onload=()=>{openForm(r.result);scanReceipt(r.result)}; r.readAsDataURL(f); e.target.value='';
 });
+
+const SPLIT_OPTIONS=`<option>Groceries</option><option>Dining Out</option><option>Shopping</option><option>Home</option><option>Bills</option><option>Gas / Car</option><option>Medical</option><option>Entertainment</option><option>Personal Care</option><option>Pets</option><option>Real Estate</option><option>Sipsters</option><option>Other</option>`;
+function addSplitRow(category='',amount=''){
+ const row=document.createElement('div');
+ row.className='splitRow';
+ row.style.cssText='display:grid;grid-template-columns:1fr 110px 34px;gap:7px;margin-bottom:8px;align-items:center';
+ row.innerHTML=`<select class="splitCat">${SPLIT_OPTIONS}</select><input class="splitAmt" type="number" min="0" step=".01" inputmode="decimal" placeholder="$0.00"><button type="button" class="danger" style="padding:8px" onclick="this.parentElement.remove();updateSplitStatus()">×</button>`;
+ row.querySelector('.splitCat').value=category||$('category').value;
+ row.querySelector('.splitAmt').value=amount;
+ row.querySelector('.splitAmt').addEventListener('input',updateSplitStatus);
+ $('splitRows').appendChild(row); updateSplitStatus();
+}
+function toggleSplit(){
+ const on=$('splitToggle').checked;
+ $('splitBox').style.display=on?'block':'none';
+ $('category').disabled=on;
+ if(on&&!document.querySelector('.splitRow')){addSplitRow($('category').value,'');addSplitRow('Other','');}
+ updateSplitStatus();
+}
+function updateSplitStatus(){
+ if(!$('splitToggle').checked)return;
+ const total=+$('amount').value||0;
+ const used=[...document.querySelectorAll('.splitAmt')].reduce((s,x)=>s+(+x.value||0),0);
+ const diff=Math.round((total-used)*100)/100;
+ $('splitStatus').textContent=Math.abs(diff)<.005?'✓ Split matches receipt total':(diff>0?money(diff)+' still needs a category':money(-diff)+' over the receipt total');
+}
+$('amount').addEventListener('input',updateSplitStatus);
 function saveExpense(e){
  e.preventDefault();
- expenses.unshift({id:Date.now(),amount:+$('amount').value,category:$('category').value,merchant:$('merchant').value.trim(),date:$('date').value,receipt:''});
- try{localStorage.setItem(KEY,JSON.stringify(expenses))}catch(err){
-   // If receipt images make storage too large, retain the expense without the image.
-   expenses[0].receipt=''; localStorage.setItem(KEY,JSON.stringify(expenses)); alert('Expense saved, but the receipt photo was too large to keep on this device.');
+ const total=+$('amount').value, merchant=$('merchant').value.trim(), date=$('date').value, base=Date.now();
+ let newItems=[];
+ if($('splitToggle').checked){
+   const rows=[...document.querySelectorAll('.splitRow')];
+   const splitTotal=rows.reduce((s,r)=>s+(+r.querySelector('.splitAmt').value||0),0);
+   if(!rows.length||Math.abs(splitTotal-total)>.005){alert('Your split amounts need to equal the receipt total before saving.');return;}
+   newItems=rows.filter(r=>(+r.querySelector('.splitAmt').value||0)>0).map((r,i)=>({
+     id:base+i,amount:+r.querySelector('.splitAmt').value,category:r.querySelector('.splitCat').value,
+     merchant,date,receipt:'',receiptTotal:total,split:true
+   }));
+ }else{
+   newItems=[{id:base,amount:total,category:$('category').value,merchant,date,receipt:'',receiptTotal:total,split:false}];
  }
- const savedDate=$('date').value;
- if(savedDate){const parts=savedDate.split('-').map(Number);if(parts.length===3)viewDate=new Date(parts[0],parts[1]-1,1);}
+ expenses.unshift(...newItems);
+ localStorage.setItem(KEY,JSON.stringify(expenses));
+ const parts=date.split('-').map(Number);if(parts.length===3)viewDate=new Date(parts[0],parts[1]-1,1);
+ $('splitToggle').checked=false;$('splitBox').style.display='none';$('splitRows').innerHTML='';$('category').disabled=false;
  $('form').close(); render();
 }
 function del(id){if(confirm('Delete this expense?')){expenses=expenses.filter(x=>x.id!==id);localStorage.setItem(KEY,JSON.stringify(expenses));render()}}
@@ -231,9 +280,9 @@ function csvCell(v){
  return '"'+s.replace(/"/g,'""')+'"';
 }
 function exportExcel(){
- const rows=[['Date','Store','Category','Amount']];
+ const rows=[['Date','Store','Category','Amount','Split Receipt','Original Receipt Total']];
  expenses.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>{
-   rows.push([x.date,x.merchant||'',x.category||'',Number(x.amount).toFixed(2)]);
+   rows.push([x.date,x.merchant||'',x.category||'',Number(x.amount).toFixed(2),x.split?'Yes':'No',Number(x.receiptTotal??x.amount).toFixed(2)]);
  });
  const csv='\uFEFF'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
  downloadFile('SpendSnap_Expenses.csv',csv,'text/csv;charset=utf-8');

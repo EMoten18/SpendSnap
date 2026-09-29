@@ -20,7 +20,7 @@ dialog{border:0;border-radius:20px;width:min(92%,520px);padding:20px}dialog::bac
 small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;font-size:13px}.status{padding:10px;border-radius:12px;background:#f1f1f3;margin-bottom:12px;display:none}.preview{max-height:150px;max-width:100%;border-radius:12px;margin:0 0 12px}
 </style></head>
 <body>
-<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done.</p>
+<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V4</p>
 <div class="card"><div class="label">Spending</div><div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0"><button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button><div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div><button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button></div><div class="total" id="monthTotal">$0.00</div><div class="muted">Total spent in selected month</div></div>
 <div class="grid">
 <label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
@@ -60,15 +60,106 @@ function openForm(receipt=''){
  $('form').showModal();
 }
 function parseReceipt(text){
- const lines=text.split(/\n/).map(s=>s.trim()).filter(Boolean);
- const priority=lines.filter(l=>/\b(grand\s*total|amount\s*due|balance\s*due|total)\b/i.test(l)&&!/\b(subtotal|tax|savings)\b/i.test(l));
- function nums(line){return [...line.matchAll(/(?:\$?\s*)(\d{1,5}[.,]\d{2})\b/g)].map(m=>+m[1].replace(',','.'))}
- let candidates=[]; priority.forEach(l=>candidates.push(...nums(l)));
- if(!candidates.length) lines.slice(-12).forEach(l=>{if(!/\b(tax|subtotal|change|cash|tender|savings)\b/i.test(l))candidates.push(...nums(l))});
- const amount=candidates.length?Math.max(...candidates):null;
- let merchant=''; for(const l of lines.slice(0,6)){if(/[A-Za-z]{3}/.test(l)&&!/\b(receipt|store|tel|phone|www|http)\b/i.test(l)){merchant=l.replace(/[^\w &'#.-]/g,' ').replace(/\s+/g,' ').trim().slice(0,50);break}}
+ const raw=text||'';
+ const lines=raw.split(/\n/).map(s=>s.trim()).filter(Boolean);
+
+ // OCR often confuses O/0, I/1, S/5 and punctuation on receipt totals.
+ function normalizeMoneyText(s){
+   return s
+     .replace(/[Oo](?=\d)/g,'0')
+     .replace(/(?<=\d)[Oo]/g,'0')
+     .replace(/[Il](?=\d)/g,'1')
+     .replace(/(?<=\d)[Il]/g,'1')
+     .replace(/(\d)\s*[,;:]\s*(\d{2})\b/g,'$1.$2');
+ }
+ function moneyValues(line){
+   const s=normalizeMoneyText(line);
+   const vals=[];
+   for(const m of s.matchAll(/(?:\$?\s*)(\d{1,5})\s*[.]\s*(\d{2})\b/g)){
+     const v=Number(m[1]+'.'+m[2]);
+     if(Number.isFinite(v) && v>=0 && v<100000) vals.push(v);
+   }
+   return vals;
+ }
+
+ // Score amounts using receipt-language clues. This is more robust than
+ // simply choosing the largest number on the receipt.
+ const scored=[];
+ lines.forEach((line,i)=>{
+   const low=line.toLowerCase();
+   const vals=moneyValues(line);
+   vals.forEach(v=>{
+     let score=0;
+     if(/\b(grand\s*total|amount\s*due|balance\s*due)\b/i.test(line)) score+=14;
+     if(/\b(balance)\b/i.test(line)) score+=12;
+     if(/\b(total)\b/i.test(line)) score+=10;
+     if(/\b(purchase|debit)\b/i.test(line)) score+=7;
+     if(/\b(subtotal)\b/i.test(line)) score-=8;
+     if(/\b(tax|change|cashback|cash back|savings|points|fuel|tender)\b/i.test(line)) score-=10;
+     // Totals tend to be in the middle/lower part of a receipt.
+     score += Math.min(3, Math.floor(i/Math.max(1,lines.length/4)));
+     scored.push({v,score,i,line});
+   });
+ });
+
+ // Repeated identical amounts near TOTAL/BALANCE/PURCHASE are strong evidence.
+ const counts={};
+ scored.filter(x=>x.v>0).forEach(x=>{
+   const k=x.v.toFixed(2); counts[k]=(counts[k]||0)+1;
+ });
+ scored.forEach(x=>{ if((counts[x.v.toFixed(2)]||0)>=2) x.score+=4; });
+
+ const valid=scored.filter(x=>x.v>0).sort((a,b)=>b.score-a.score || b.i-a.i);
+ const amount=valid.length && valid[0].score>0 ? valid[0].v : null;
+
+ // Merchant recognition. First use strong known-brand/domain clues, then
+ // fall back to a cleaned early receipt line.
+ const all=raw.toLowerCase();
+ const brands=[
+   ['Kroger',/\bkroger\b|kroger\.com/i],
+   ['Meijer',/\bmeijer\b|meijer\.com/i],
+   ['Target',/\btarget\b|target\.com/i],
+   ['Costco',/\bcostco\b|costco\.com/i],
+   ['Walmart',/\bwalmart\b|walmart\.com/i],
+   ['Home Depot',/\bhome\s*depot\b|homedepot\.com/i],
+   ["Lowe's",/\blowe'?s\b|lowes\.com/i],
+   ['CVS',/\bcvs\b|cvs\.com/i],
+   ['Walgreens',/\bwalgreens\b|walgreens\.com/i],
+   ['Aldi',/\baldi\b|aldi\.us/i],
+   ['Whole Foods',/\bwhole\s*foods\b/i],
+   ['Trader Joe’s',/\btrader\s*joe'?s\b/i]
+ ];
+ let merchant='';
+ for(const [name,re] of brands){ if(re.test(all)){merchant=name;break;} }
+
+ // Kroger logo OCR can be mangled, but other Kroger-specific receipt text is useful.
+ if(!merchant && (/kroger\s*plus\s*customer/i.test(all) || /www\.\s*kroger/i.test(all))) merchant='Kroger';
+
+ if(!merchant){
+   for(const l of lines.slice(0,10)){
+     if(/[A-Za-z]{3}/.test(l) &&
+        !/\b(receipt|store|tel|phone|www|http|date|time|customer|address|road|rd\.|mile)\b/i.test(l) &&
+        !/^\s*\d/.test(l)){
+       merchant=l.replace(/[^\w &'#.-]/g,' ').replace(/\s+/g,' ').trim().slice(0,50);
+       if(merchant) break;
+     }
+   }
+ }
+
+ // Common US receipt dates.
  let receiptDate=null;
- for(const l of lines){for(const m of l.matchAll(/\b(0?[1-9]|1[0-2])[\/\-.](0?[1-9]|[12]\d|3[01])[\/\-.]((?:19|20)?\d{2})\b/g)){let y=+m[3];if(y<100)y+=y>=70?1900:2000;let mo=+m[1],d=+m[2],dt=new Date(y,mo-1,d);if(dt.getFullYear()===y&&dt.getMonth()===mo-1&&dt.getDate()===d){receiptDate=`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;break}}if(receiptDate)break}
+ for(const l of lines){
+   const re=/\b(0?[1-9]|1[0-2])[\/\-.](0?[1-9]|[12]\d|3[01])[\/\-.]((?:19|20)?\d{2})\b/g;
+   for(const m of l.matchAll(re)){
+     let y=+m[3]; if(y<100)y+=y>=70?1900:2000;
+     const mo=+m[1],d=+m[2],dt=new Date(y,mo-1,d);
+     if(dt.getFullYear()===y && dt.getMonth()===mo-1 && dt.getDate()===d){
+       receiptDate=`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+       break;
+     }
+   }
+   if(receiptDate) break;
+ }
  return {amount,merchant,date:receiptDate};
 }
 async function scanReceipt(data){

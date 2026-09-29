@@ -28,18 +28,18 @@ small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;fo
 
 </head>
 <body>
-<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V12</p>
+<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V13</p>
 <div class="card"><div class="label">Spending</div><div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0"><button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button><div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div><button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button></div><div class="total" id="monthTotal">$0.00</div><div class="muted">Total spent in selected month</div></div>
 <div class="grid">
 <label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
-<button onclick="openForm()">✏️ Enter Expense</button>
+<button onclick="openForm()">✏️ Enter Purchase</button>
 </div>
 <div class="card"><b>By category</b><div id="cats" style="margin-top:10px"></div></div>
-<div class="card"><b>Recent expenses</b><div id="txns" style="margin-top:8px"></div></div>
+<div class="card"><b>Recent transactions</b><div id="txns" style="margin-top:8px"></div></div>
 
 <dialog id="form">
 <form method="dialog" onsubmit="saveExpense(event)">
-<h2 style="margin-top:0" id="formTitle">Add expense</h2>
+<h2 style="margin-top:0" id="formTitle">Add purchase</h2>
 <div id="ocrStatus" class="status"></div>
 <img id="receiptPreview" class="preview" style="display:none">
 <label>Amount</label><input id="amount" inputmode="decimal" type="number" min="0" step=".01" required placeholder="0.00">
@@ -49,6 +49,7 @@ small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;fo
 <option>Bills</option><option>Gas / Car</option><option>Medical</option><option>Entertainment</option>
 <option>Personal Care</option><option>Pets</option><option>Real Estate</option><option>Sipsters</option><option>Other</option>
 </select>
+<div class="muted" style="margin-top:4px">Sipsters and Real Estate are automatically treated as business/tax expenses.</div>
 <label>Store / note <small>(optional)</small></label><input id="merchant" placeholder="Costco, Target, etc.">
 <label>Date</label><input id="date" type="date" required>
 <input id="receiptData" type="hidden">
@@ -57,7 +58,7 @@ small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;fo
 
 <dialog id="splitDialog">
 <form method="dialog" onsubmit="saveSplit(event)">
-<h2 style="margin-top:0">Split expense</h2>
+<h2 style="margin-top:0">Split purchase</h2>
 <div id="splitOriginal" class="muted" style="margin-bottom:12px"></div>
 <div id="splitRows"></div>
 <button type="button" class="secondary" onclick="addSplitRow()">+ Add another category</button>
@@ -72,7 +73,7 @@ let expenses=JSON.parse(localStorage.getItem(KEY)||'[]');
 function money(n){return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(n)}
 function today(){return new Date().toISOString().slice(0,10)}
 function openForm(receipt=''){
- $('formTitle').textContent=receipt?'Receipt expense':'Add expense';
+ $('formTitle').textContent=receipt?'Receipt purchase':'Add purchase';
  $('amount').value=''; $('merchant').value=''; $('date').value=today(); $('receiptData').value='';
  $('ocrStatus').style.display='none'; $('receiptPreview').style.display=receipt?'block':'none'; $('receiptPreview').src=receipt||'';
  $('form').showModal();
@@ -322,7 +323,7 @@ function saveSplit(e){
  const repl=pieces.map((r,i)=>({id:base+i,amount:+r.querySelector('.splitAmt').value,category:r.querySelector('.splitCat').value,merchant:x.merchant,date:x.date,receipt:'',receiptTotal:x.receiptTotal||x.amount,split:true}));
  expenses.splice(idx,1,...repl);localStorage.setItem(KEY,JSON.stringify(expenses));$('splitDialog').close();render();
 }
-function del(id){if(confirm('Delete this expense?')){expenses=expenses.filter(x=>x.id!==id);localStorage.setItem(KEY,JSON.stringify(expenses));render()}}
+function del(id){if(confirm('Delete this transaction?')){expenses=expenses.filter(x=>x.id!==id);localStorage.setItem(KEY,JSON.stringify(expenses));render()}}
 let viewDate=new Date();
 function changeMonth(delta){viewDate=new Date(viewDate.getFullYear(),viewDate.getMonth()+delta,1);render()}
 function render(){
@@ -330,6 +331,7 @@ function render(){
  const monthLabel=viewDate.toLocaleDateString('en-US',{month:'long',year:'numeric'});
  $('monthName').textContent=monthLabel || `${viewDate.getMonth()+1}/${viewDate.getFullYear()}`;
  $('monthTotal').textContent=money(m.reduce((s,x)=>s+x.amount,0));
+ $('businessTotal').textContent=money(m.filter(x=>isBusinessCategory(x.category)).reduce((s,x)=>s+x.amount,0));
  const sums={};m.forEach(x=>sums[x.category]=(sums[x.category]||0)+x.amount);const max=Math.max(1,...Object.values(sums));
  $('cats').innerHTML=Object.entries(sums).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<div style="margin:10px 0"><div class="row" style="padding:0;border:0"><span>${c}</span><b>${money(v)}</b></div><div class="catbar"><i style="width:${v/max*100}%"></i></div></div>`).join('')||'<div class="muted">No spending recorded for this month.</div>';
  const recent=m.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).slice(0,30);
@@ -347,16 +349,17 @@ function csvCell(v){
  const s=String(v??'');
  return '"'+s.replace(/"/g,'""')+'"';
 }
+function isBusinessCategory(category){return category==='Sipsters'||category==='Real Estate';}
 function exportExcel(){
- const rows=[['Date','Store','Category','Amount','Split Receipt','Original Receipt Total']];
+ const rows=[['Date','Store / Note','Category','Amount','Business / Tax Expense?','Split Receipt','Original Receipt Total']];
  expenses.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>{
-   rows.push([x.date,x.merchant||'',x.category||'',Number(x.amount).toFixed(2),x.split?'Yes':'No',Number(x.receiptTotal??x.amount).toFixed(2)]);
+   rows.push([x.date,x.merchant||'',x.category||'',Number(x.amount).toFixed(2),isBusinessCategory(x.category)?'Yes':'No',x.split?'Yes':'No',Number(x.receiptTotal??x.amount).toFixed(2)]);
  });
  const csv='\uFEFF'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
- downloadFile('SpendSnap_Expenses.csv',csv,'text/csv;charset=utf-8');
+ downloadFile('SpendSnap_Transactions.csv',csv,'text/csv;charset=utf-8');
 }
 function exportBackup(){
- const data={app:'SpendSnap',version:12,exportedAt:new Date().toISOString(),expenses};
+ const data={app:'SpendSnap',version:13,exportedAt:new Date().toISOString(),expenses};
  downloadFile('SpendSnap_Backup.json',JSON.stringify(data,null,2),'application/json');
 }
 function restoreBackup(ev){

@@ -20,7 +20,7 @@ dialog{border:0;border-radius:20px;width:min(92%,520px);padding:20px}dialog::bac
 small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;font-size:13px}.status{padding:10px;border-radius:12px;background:#f1f1f3;margin-bottom:12px;display:none}.preview{max-height:150px;max-width:100%;border-radius:12px;margin:0 0 12px}
 </style></head>
 <body>
-<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V4</p>
+<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V8</p>
 <div class="card"><div class="label">Spending</div><div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0"><button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button><div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div><button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button></div><div class="total" id="monthTotal">$0.00</div><div class="muted">Total spent in selected month</div></div>
 <div class="grid">
 <label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
@@ -112,40 +112,51 @@ function parseReceipt(text){
  const valid=scored.filter(x=>x.v>0).sort((a,b)=>b.score-a.score || b.i-a.i);
  const amount=valid.length && valid[0].score>0 ? valid[0].v : null;
 
- // Merchant recognition. First use strong known-brand/domain clues, then
- // fall back to a cleaned early receipt line.
- const all=raw.toLowerCase();
- const brands=[
-   ['Kroger',/\bkroger\b|kroger\.com/i],
-   ['Meijer',/\bmeijer\b|meijer\.com/i],
-   ['Target',/\btarget\b|target\.com/i],
-   ['Costco',/\bcostco\b|costco\.com/i],
-   ['Walmart',/\bwalmart\b|walmart\.com/i],
-   ['Home Depot',/\bhome\s*depot\b|homedepot\.com/i],
-   ["Lowe's",/\blowe'?s\b|lowes\.com/i],
-   ['CVS',/\bcvs\b|cvs\.com/i],
-   ['Walgreens',/\bwalgreens\b|walgreens\.com/i],
-   ['Aldi',/\baldi\b|aldi\.us/i],
-   ['Whole Foods',/\bwhole\s*foods\b/i],
-   ['Trader Joe’s',/\btrader\s*joe'?s\b/i]
+ // Merchant recognition V7: score merchant clues anywhere on the receipt.
+ const all=raw.toLowerCase().replace(/\s+/g,' ');
+ const compact=all.replace(/[^a-z0-9]/g,'');
+ const merchants=[
+  ['Kroger',[/\bkroger\b/i,/kroger\.com/i,/kroger\s*plus/i,/plus\s*customer/i]],
+  ['Marshalls',[/\bmarshalls\b/i,/marshallsfeedback/i,/marshalls\s+values\s+your\s+feedback/i]],
+  ['TJ Maxx',[/\btj\s*maxx\b/i,/tjmaxx/i,/tjxstyle/i]],
+  ['HomeGoods',[/\bhomegoods\b/i,/homegoods\.com/i]],
+  ['Meijer',[/\bmeijer\b/i,/meijer\.com/i,/mperks/i]],
+  ['Target',[/\btarget\b/i,/target\.com/i,/target\s*circle/i]],
+  ['Costco',[/\bcostco\b/i,/costco\.com/i,/costco\s*wholesale/i]],
+  ['Walmart',[/\bwalmart\b/i,/walmart\.com/i]],
+  ['Home Depot',[/\bhome\s*depot\b/i,/homedepot\.com/i]],
+  ["Lowe's",[/\blowe'?s\b/i,/lowes\.com/i]],
+  ['CVS',[/\bcvs\b/i,/cvs\.com/i,/extracare/i]],
+  ['Walgreens',[/\bwalgreens\b/i,/walgreens\.com/i,/mywalgreens/i]],
+  ['Aldi',[/\baldi\b/i,/aldi\.us/i]],
+  ['Whole Foods',[/\bwhole\s*foods\b/i,/wholefoodsmarket/i]],
+  ["Trader Joe's",[/\btrader\s*joe'?s\b/i]],
+  ["Sam's Club",[/\bsam'?s\s*club\b/i,/samsclub\.com/i]],
+  ['Menards',[/\bmenards\b/i,/menards\.com/i]]
  ];
- let merchant='';
- for(const [name,re] of brands){ if(re.test(all)){merchant=name;break;} }
-
- // Kroger logo OCR can be mangled, but other Kroger-specific receipt text is useful.
- if(!merchant && (/kroger\s*plus\s*customer/i.test(all) || /www\.\s*kroger/i.test(all))) merchant='Kroger';
-
- if(!merchant){
-   for(const l of lines.slice(0,10)){
-     if(/[A-Za-z]{3}/.test(l) &&
-        !/\b(receipt|store|tel|phone|www|http|date|time|customer|address|road|rd\.|mile)\b/i.test(l) &&
-        !/^\s*\d/.test(l)){
-       merchant=l.replace(/[^\w &'#.-]/g,' ').replace(/\s+/g,' ').trim().slice(0,50);
-       if(merchant) break;
-     }
-   }
+ let merchant='',best=0;
+ for(const [name,clues] of merchants){
+   let score=0;
+   for(const clue of clues) if(clue.test(all)) score+=4;
+   const key=name.toLowerCase().replace(/[^a-z0-9]/g,'');
+   if(key.length>=4 && compact.includes(key)) score+=3;
+   if(score>best){best=score;merchant=name;}
  }
-
+ // Generic fallback: favor plausible business-name text near the top.
+ if(!merchant){
+   const bad=/\b(receipt|store|tel|phone|www|http|date|time|customer|cashier|register|terminal|transaction|address|road|rd\.|mile|subtotal|total|balance|purchase|debit|credit|visa|mastercard|sale|return|item|tax)\b/i;
+   let picks=[];
+   lines.slice(0,15).forEach((l,i)=>{
+     const c=l.replace(/[^\w &'#.-]/g,' ').replace(/\s+/g,' ').trim();
+     if(/[A-Za-z]{3}/.test(c)&&c.length>=3&&c.length<=45&&!bad.test(c)&&!/^\s*\d/.test(c)){
+       let score=15-i;
+       if(/^[A-Za-z][A-Za-z &'#.-]+$/.test(c)) score+=3;
+       picks.push({c,score});
+     }
+   });
+   picks.sort((x,y)=>y.score-x.score);
+   if(picks.length) merchant=picks[0].c;
+ }
  // Common US receipt dates.
  let receiptDate=null;
  for(const l of lines){
@@ -185,11 +196,13 @@ $('receipt').addEventListener('change',e=>{
 });
 function saveExpense(e){
  e.preventDefault();
- expenses.unshift({id:Date.now(),amount:+$('amount').value,category:$('category').value,merchant:$('merchant').value.trim(),date:$('date').value,receipt:$('receiptData').value});
+ expenses.unshift({id:Date.now(),amount:+$('amount').value,category:$('category').value,merchant:$('merchant').value.trim(),date:$('date').value,receipt:''});
  try{localStorage.setItem(KEY,JSON.stringify(expenses))}catch(err){
    // If receipt images make storage too large, retain the expense without the image.
    expenses[0].receipt=''; localStorage.setItem(KEY,JSON.stringify(expenses)); alert('Expense saved, but the receipt photo was too large to keep on this device.');
  }
+ const savedDate=$('date').value;
+ if(savedDate){const parts=savedDate.split('-').map(Number);if(parts.length===3)viewDate=new Date(parts[0],parts[1]-1,1);}
  $('form').close(); render();
 }
 function del(id){if(confirm('Delete this expense?')){expenses=expenses.filter(x=>x.id!==id);localStorage.setItem(KEY,JSON.stringify(expenses));render()}}
@@ -197,12 +210,55 @@ let viewDate=new Date();
 function changeMonth(delta){viewDate=new Date(viewDate.getFullYear(),viewDate.getMonth()+delta,1);render()}
 function render(){
  const ym=`${viewDate.getFullYear()}-${String(viewDate.getMonth()+1).padStart(2,'0')}`,m=expenses.filter(x=>x.date.startsWith(ym));
- $('monthName').textContent=viewDate.toLocaleString('en-US',{month:'long',year:'numeric'});
+ const monthLabel=viewDate.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+ $('monthName').textContent=monthLabel || `${viewDate.getMonth()+1}/${viewDate.getFullYear()}`;
  $('monthTotal').textContent=money(m.reduce((s,x)=>s+x.amount,0));
  const sums={};m.forEach(x=>sums[x.category]=(sums[x.category]||0)+x.amount);const max=Math.max(1,...Object.values(sums));
  $('cats').innerHTML=Object.entries(sums).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<div style="margin:10px 0"><div class="row" style="padding:0;border:0"><span>${c}</span><b>${money(v)}</b></div><div class="catbar"><i style="width:${v/max*100}%"></i></div></div>`).join('')||'<div class="muted">No spending recorded for this month.</div>';
  const recent=m.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).slice(0,30);
- $('txns').innerHTML=recent.map(x=>`<div class="row"><div><b>${x.merchant||x.category}</b><div class="muted">${x.date} · ${x.category}${x.receipt?' · 📎 receipt':''}</div></div><div style="text-align:right"><div class="amt">${money(x.amount)}</div><button class="danger" onclick="del(${x.id})">delete</button></div></div>`).join('')||'<div class="muted">No expenses in this month.</div>';
+ $('txns').innerHTML=recent.map(x=>`<div class="row"><div><b>${x.merchant||x.category}</b><div class="muted">${x.date} · ${x.category}</div></div><div style="text-align:right"><div class="amt">${money(x.amount)}</div><button class="danger" onclick="del(${x.id})">delete</button></div></div>`).join('')||'<div class="muted">No expenses in this month.</div>';
 }
+
+function downloadFile(name,content,type){
+ const blob=new Blob([content],{type});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement('a');a.href=url;a.download=name;
+ document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function csvCell(v){
+ const s=String(v??'');
+ return '"'+s.replace(/"/g,'""')+'"';
+}
+function exportExcel(){
+ const rows=[['Date','Store','Category','Amount']];
+ expenses.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>{
+   rows.push([x.date,x.merchant||'',x.category||'',Number(x.amount).toFixed(2)]);
+ });
+ const csv='\uFEFF'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+ downloadFile('SpendSnap_Expenses.csv',csv,'text/csv;charset=utf-8');
+}
+function exportBackup(){
+ const data={app:'SpendSnap',version:7,exportedAt:new Date().toISOString(),expenses};
+ downloadFile('SpendSnap_Backup.json',JSON.stringify(data,null,2),'application/json');
+}
+function restoreBackup(ev){
+ const file=ev.target.files&&ev.target.files[0]; if(!file)return;
+ const r=new FileReader();
+ r.onload=()=>{
+   try{
+     const data=JSON.parse(r.result);
+     if(!data||!Array.isArray(data.expenses))throw new Error('Invalid backup');
+     if(!confirm(`Restore ${data.expenses.length} expenses? This will replace the data currently in SpendSnap.`))return;
+     expenses=data.expenses;
+     localStorage.setItem('spendsnap_expenses',JSON.stringify(expenses));
+     render();
+     alert('SpendSnap backup restored.');
+   }catch(e){alert('That file is not a valid SpendSnap backup.');}
+   ev.target.value='';
+ };
+ r.readAsText(file);
+}
+
 render();
 </script></body></html>

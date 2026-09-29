@@ -20,7 +20,7 @@ dialog{border:0;border-radius:20px;width:min(92%,520px);padding:20px}dialog::bac
 small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;font-size:13px}.status{padding:10px;border-radius:12px;background:#f1f1f3;margin-bottom:12px;display:none}.preview{max-height:150px;max-width:100%;border-radius:12px;margin:0 0 12px}
 </style></head>
 <body>
-<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V10</p>
+<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V11</p>
 <div class="card"><div class="label">Spending</div><div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0"><button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button><div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div><button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button></div><div class="total" id="monthTotal">$0.00</div><div class="muted">Total spent in selected month</div></div>
 <div class="grid">
 <label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
@@ -183,19 +183,54 @@ function parseReceipt(text){
  }
  return {amount,merchant,date:receiptDate};
 }
+async function preprocessReceipt(data){
+ return new Promise((resolve,reject)=>{
+  const img=new Image();
+  img.onload=()=>{
+   try{
+    const maxW=1800, scale=Math.min(1,maxW/img.width);
+    const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*scale));c.height=Math.max(1,Math.round(img.height*scale));
+    const ctx=c.getContext('2d');ctx.drawImage(img,0,0,c.width,c.height);
+    const im=ctx.getImageData(0,0,c.width,c.height), d=im.data;
+    // grayscale + contrast boost helps faded thermal receipts without changing the stored data (we still store no photo)
+    for(let i=0;i<d.length;i+=4){
+      let g=.299*d[i]+.587*d[i+1]+.114*d[i+2];
+      g=(g-128)*1.65+128; g=Math.max(0,Math.min(255,g));
+      d[i]=d[i+1]=d[i+2]=g;
+    }
+    ctx.putImageData(im,0,0);resolve(c.toDataURL('image/jpeg',.92));
+   }catch(e){reject(e)}
+  };img.onerror=reject;img.src=data;
+ });
+}
 async function scanReceipt(data){
  const s=$('ocrStatus'); s.style.display='block'; s.textContent='Reading receipt…';
  try{
    if(!window.Tesseract) throw new Error('OCR unavailable');
-   const result=await Tesseract.recognize(data,'eng',{logger:m=>{
-     if(m.status==='recognizing text') s.textContent='Reading receipt… '+Math.round((m.progress||0)*100)+'%';
-   }});
-   const found=parseReceipt(result.data.text||'');
+   const logger=m=>{if(m.status==='recognizing text')s.textContent='Reading receipt… '+Math.round((m.progress||0)*100)+'%';};
+   const first=await Tesseract.recognize(data,'eng',{logger});
+   let text=first.data.text||'', found=parseReceipt(text);
+   // Only do the extra pass when the first read missed something important.
+   if(!found.amount||!found.date||!found.merchant){
+     s.textContent='Giving this receipt a second look…';
+     try{
+       const cleaned=await preprocessReceipt(data);
+       const second=await Tesseract.recognize(cleaned,'eng',{logger});
+       const text2=second.data.text||'', f2=parseReceipt(text2);
+       // Prefer fields found by either pass; parse combined text as another chance for merchant/total clues.
+       const combined=parseReceipt(text+'\n'+text2);
+       found={
+         amount:found.amount||f2.amount||combined.amount,
+         merchant:found.merchant||f2.merchant||combined.merchant,
+         date:found.date||f2.date||combined.date
+       };
+     }catch(_){}
+   }
    if(found.amount) $('amount').value=found.amount.toFixed(2);
    if(found.merchant) $('merchant').value=found.merchant;
    if(found.date) $('date').value=found.date;
-   const bits=[]; if(found.amount)bits.push(money(found.amount)); if(found.date)bits.push(new Date(found.date+'T12:00:00').toLocaleDateString('en-US'));
-   s.textContent=bits.length?'I found '+bits.join(' and ')+'. Check them, choose a category, and save.':'I couldn’t confidently read the total/date. Enter or correct them, choose a category, and save.';
+   const bits=[];if(found.merchant)bits.push(found.merchant);if(found.amount)bits.push(money(found.amount));if(found.date)bits.push(new Date(found.date+'T12:00:00').toLocaleDateString('en-US'));
+   s.textContent=bits.length?'I found '+bits.join(' · ')+'. Check them, choose a category, and save.':'I couldn’t confidently read this one. Enter or correct the details, choose a category, and save.';
  }catch(err){
    s.textContent='Receipt reading didn’t cooperate. Enter the amount manually, pick a category, and save.';
  }
@@ -214,46 +249,70 @@ function saveExpense(e){
  $('form').close(); render();
 }
 
+
 const SPLIT_CATEGORIES=['Groceries','Dining Out','Shopping','Home','Bills','Gas / Car','Medical','Entertainment','Personal Care','Pets','Real Estate','Sipsters','Other'];
 let splitExpenseId=null;
+
+function makeSplitSelect(value){
+ const sel=document.createElement('select'); sel.className='splitCat';
+ SPLIT_CATEGORIES.forEach(c=>{const o=document.createElement('option');o.textContent=c;o.value=c;sel.appendChild(o)});
+ sel.value=value||'Other'; return sel;
+}
 function openSplit(id){
  const x=expenses.find(e=>e.id===id); if(!x)return;
  splitExpenseId=id; $('splitRows').innerHTML='';
  $('splitOriginal').textContent=(x.merchant||'Expense')+' · '+money(x.amount)+' · '+x.date;
- addSplitRow(x.category,''); addSplitRow('Other','');
+ addSplitRow(x.category,'');
+ addSplitRow('Other','',true);
  $('splitDialog').showModal(); updateSplitStatus();
 }
-function addSplitRow(category='',amount=''){
+function addSplitRow(category='',amount='',auto=false){
+ // Existing auto-remainder row becomes editable when a new category is added.
+ const oldAuto=document.querySelector('#splitRows .autoRow');
+ if(oldAuto){oldAuto.classList.remove('autoRow');const a=oldAuto.querySelector('.splitAmt');a.readOnly=false;a.dataset.auto='';}
  const row=document.createElement('div');
- row.className='splitRow';
+ row.className='splitRow'+(auto?' autoRow':'');
  row.style.cssText='display:grid;grid-template-columns:1fr 105px 30px;gap:7px;margin-bottom:8px;align-items:center';
- const sel=document.createElement('select'); sel.className='splitCat';
- SPLIT_CATEGORIES.forEach(c=>{const o=document.createElement('option');o.textContent=c;o.value=c;sel.appendChild(o)});
- sel.value=category||'Other';
+ const sel=makeSplitSelect(category);
  const amt=document.createElement('input'); amt.className='splitAmt';amt.type='number';amt.min='0';amt.step='.01';amt.inputMode='decimal';amt.placeholder='0.00';
  amt.value=amount; amt.addEventListener('input',updateSplitStatus);
  const rem=document.createElement('button');rem.type='button';rem.className='danger';rem.textContent='×';
- rem.onclick=()=>{row.remove();updateSplitStatus()};
- row.append(sel,amt,rem); $('splitRows').appendChild(row); updateSplitStatus();
+ rem.onclick=()=>{row.remove();ensureAutoLast();updateSplitStatus()};
+ row.append(sel,amt,rem); $('splitRows').appendChild(row);
+ if(auto){amt.readOnly=true;amt.dataset.auto='1';amt.placeholder='Auto';}
+ ensureAutoLast(); updateSplitStatus();
+}
+function ensureAutoLast(){
+ const rows=[...document.querySelectorAll('#splitRows .splitRow')];
+ if(!rows.length)return;
+ rows.forEach(r=>{r.classList.remove('autoRow');const a=r.querySelector('.splitAmt');a.readOnly=false;a.dataset.auto='';});
+ const last=rows[rows.length-1], a=last.querySelector('.splitAmt');
+ last.classList.add('autoRow');a.readOnly=true;a.dataset.auto='1';
 }
 function updateSplitStatus(){
  const x=expenses.find(e=>e.id===splitExpenseId); if(!x)return;
- const used=[...document.querySelectorAll('#splitRows .splitAmt')].reduce((s,n)=>s+(+n.value||0),0);
- const diff=Math.round((x.amount-used)*100)/100;
- $('splitStatus').textContent=Math.abs(diff)<.005?'✓ Split matches '+money(x.amount):(diff>0?money(diff)+' left to assign':money(-diff)+' over the total');
+ const rows=[...document.querySelectorAll('#splitRows .splitRow')];
+ if(!rows.length)return;
+ ensureAutoLast();
+ const last=rows[rows.length-1], autoAmt=last.querySelector('.splitAmt');
+ const entered=rows.slice(0,-1).reduce((s,r)=>s+(+r.querySelector('.splitAmt').value||0),0);
+ const remainder=Math.round((x.amount-entered)*100)/100;
+ autoAmt.value=remainder>=0?remainder.toFixed(2):'0.00';
+ $('splitStatus').textContent=remainder<0?money(-remainder)+' over the receipt total':'Last category automatically gets '+money(Math.max(0,remainder));
 }
 function saveSplit(e){
  e.preventDefault();
  const x=expenses.find(e=>e.id===splitExpenseId); if(!x)return;
  const rows=[...document.querySelectorAll('#splitRows .splitRow')];
- const total=rows.reduce((s,r)=>s+(+r.querySelector('.splitAmt').value||0),0);
- if(Math.abs(total-x.amount)>.005){alert('The split amounts need to equal '+money(x.amount)+'.');return;}
+ if(rows.length<2){alert('Add at least two categories to split this expense.');return;}
+ const entered=rows.slice(0,-1).reduce((s,r)=>s+(+r.querySelector('.splitAmt').value||0),0);
+ if(entered>x.amount+.005){alert('The amounts you entered are more than '+money(x.amount)+'.');return;}
+ updateSplitStatus();
  const pieces=rows.filter(r=>(+r.querySelector('.splitAmt').value||0)>0);
  if(pieces.length<2){alert('Add at least two amounts to split this expense.');return;}
  const idx=expenses.findIndex(e=>e.id===splitExpenseId), base=Date.now();
- const repl=pieces.map((r,i)=>({id:base+i,amount:+r.querySelector('.splitAmt').value,category:r.querySelector('.splitCat').value,merchant:x.merchant,date:x.date,receipt:'',receiptTotal:x.amount,split:true}));
- expenses.splice(idx,1,...repl); localStorage.setItem(KEY,JSON.stringify(expenses));
- $('splitDialog').close(); render();
+ const repl=pieces.map((r,i)=>({id:base+i,amount:+r.querySelector('.splitAmt').value,category:r.querySelector('.splitCat').value,merchant:x.merchant,date:x.date,receipt:'',receiptTotal:x.receiptTotal||x.amount,split:true}));
+ expenses.splice(idx,1,...repl);localStorage.setItem(KEY,JSON.stringify(expenses));$('splitDialog').close();render();
 }
 function del(id){if(confirm('Delete this expense?')){expenses=expenses.filter(x=>x.id!==id);localStorage.setItem(KEY,JSON.stringify(expenses));render()}}
 let viewDate=new Date();
@@ -289,7 +348,7 @@ function exportExcel(){
  downloadFile('SpendSnap_Expenses.csv',csv,'text/csv;charset=utf-8');
 }
 function exportBackup(){
- const data={app:'SpendSnap',version:10,exportedAt:new Date().toISOString(),expenses};
+ const data={app:'SpendSnap',version:11,exportedAt:new Date().toISOString(),expenses};
  downloadFile('SpendSnap_Backup.json',JSON.stringify(data,null,2),'application/json');
 }
 function restoreBackup(ev){

@@ -37,6 +37,16 @@ small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;fo
 <div class="card"><b>By category</b><div id="cats" style="margin-top:10px"></div></div>
 <div class="card"><b>Recent transactions</b><div id="txns" style="margin-top:8px"></div></div>
 
+<div class="card">
+<b>Data &amp; Export</b>
+<div class="muted" style="margin:6px 0 12px">Export all transactions to a file that opens in Excel, or back up/restore SpendSnap.</div>
+<div style="display:grid;gap:8px">
+<button type="button" onclick="exportExcel()">📊 Export to Excel</button>
+<button type="button" class="secondary" onclick="exportBackup()">💾 Backup SpendSnap</button>
+<label class="secondary" style="display:block;text-align:center;padding:12px;border-radius:12px;cursor:pointer">↩️ Restore Backup<input type="file" accept=".json,application/json" onchange="restoreBackup(event)" style="display:none"></label>
+</div>
+</div>
+
 <dialog id="form">
 <form method="dialog" onsubmit="saveExpense(event)">
 <h2 style="margin-top:0" id="formTitle">Add purchase</h2>

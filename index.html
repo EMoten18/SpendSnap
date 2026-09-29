@@ -18,9 +18,17 @@ h1{margin:8px 0 2px;font-size:30px}.sub{color:#777;margin:0 0 18px}.card{backgro
 dialog{border:0;border-radius:20px;width:min(92%,520px);padding:20px}dialog::backdrop{background:#0008}
 #receipt{display:none}.catbar{height:8px;background:#eee;border-radius:8px;overflow:hidden;margin-top:5px}.catbar i{display:block;height:100%;background:#222}
 small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;font-size:13px}.status{padding:10px;border-radius:12px;background:#f1f1f3;margin-bottom:12px;display:none}.preview{max-height:150px;max-width:100%;border-radius:12px;margin:0 0 12px}
-</style></head>
+</style>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#f7eee9">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="SpendSnap">
+
+</head>
 <body>
-<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V11</p>
+<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V12</p>
 <div class="card"><div class="label">Spending</div><div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0"><button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button><div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div><button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button></div><div class="total" id="monthTotal">$0.00</div><div class="muted">Total spent in selected month</div></div>
 <div class="grid">
 <label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
@@ -348,7 +356,7 @@ function exportExcel(){
  downloadFile('SpendSnap_Expenses.csv',csv,'text/csv;charset=utf-8');
 }
 function exportBackup(){
- const data={app:'SpendSnap',version:11,exportedAt:new Date().toISOString(),expenses};
+ const data={app:'SpendSnap',version:12,exportedAt:new Date().toISOString(),expenses};
  downloadFile('SpendSnap_Backup.json',JSON.stringify(data,null,2),'application/json');
 }
 function restoreBackup(ev){
@@ -370,4 +378,13 @@ function restoreBackup(ev){
 }
 
 render();
-</script></body></html>
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').then(reg => reg.update()).catch(()=>{});
+  });
+}
+</script>
+
+</body></html>

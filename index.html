@@ -28,8 +28,9 @@ small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;fo
 
 </head>
 <body>
-<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Done. · V13</p>
+<h1>SpendSnap</h1><p class="sub">Receipt. Categorize. Understand. · V14</p>
 <div class="card"><div class="label">Spending</div><div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0"><button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button><div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div><button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button></div><div class="total" id="monthTotal">$0.00</div><div class="muted">Total spent in selected month</div></div>
+<div class="card"><b>Monthly snapshot</b><div class="grid" style="margin-top:12px"><div><div class="label">Personal / Household</div><div class="amt" id="personalTotal" style="font-size:22px">$0.00</div></div><div><div class="label">Business</div><div class="amt" id="businessTotal" style="font-size:22px">$0.00</div></div></div></div>
 <div class="grid">
 <label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
 <button onclick="openForm()">✏️ Enter Purchase</button>
@@ -59,7 +60,8 @@ small{color:#777}.danger{color:#b00020;background:none;padding:5px;width:auto;fo
 <option>Bills</option><option>Gas / Car</option><option>Medical</option><option>Entertainment</option>
 <option>Personal Care</option><option>Pets</option><option>Real Estate</option><option>Sipsters</option><option>Other</option>
 </select>
-<div class="muted" style="margin-top:4px">Sipsters and Real Estate are automatically treated as business/tax expenses.</div>
+<label>Purpose</label><select id="purpose"><option>Personal / Household</option><option>Real Estate</option><option>Sipsters</option></select>
+<div class="muted" style="margin-top:4px">Category says what you bought. Purpose says why you bought it. Existing Real Estate and Sipsters entries still work automatically.</div>
 <label>Store / note <small>(optional)</small></label><input id="merchant" placeholder="Costco, Target, etc.">
 <label>Date</label><input id="date" type="date" required>
 <input id="receiptData" type="hidden">
@@ -84,7 +86,7 @@ function money(n){return new Intl.NumberFormat('en-US',{style:'currency',currenc
 function today(){return new Date().toISOString().slice(0,10)}
 function openForm(receipt=''){
  $('formTitle').textContent=receipt?'Receipt purchase':'Add purchase';
- $('amount').value=''; $('merchant').value=''; $('date').value=today(); $('receiptData').value='';
+ $('amount').value=''; $('merchant').value=''; $('date').value=today(); $('receiptData').value=''; $('purpose').value='Personal / Household';
  $('ocrStatus').style.display='none'; $('receiptPreview').style.display=receipt?'block':'none'; $('receiptPreview').src=receipt||'';
  $('form').showModal();
 }
@@ -254,15 +256,30 @@ async function scanReceipt(data){
    s.textContent='Receipt reading didn’t cooperate. Enter the amount manually, pick a category, and save.';
  }
 }
-$('receipt').addEventListener('change',e=>{
+async function compressReceipt(file){
+ return new Promise((resolve,reject)=>{
+  const img=new Image(),url=URL.createObjectURL(file);
+  img.onload=()=>{
+   const max=1400,scale=Math.min(1,max/Math.max(img.width,img.height));
+   const c=document.createElement('canvas');c.width=Math.round(img.width*scale);c.height=Math.round(img.height*scale);
+   c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+   URL.revokeObjectURL(url); resolve(c.toDataURL('image/jpeg',0.72));
+  };img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Could not read image'))};img.src=url;
+ });
+}
+
+$('receipt').addEventListener('change',async e=>{
  const f=e.target.files[0]; if(!f)return;
- const r=new FileReader(); r.onload=()=>{openForm(r.result);scanReceipt(r.result)}; r.readAsDataURL(f); e.target.value='';
+ try{const data=await compressReceipt(f);openForm(data);$('receiptData').value=data;scanReceipt(data)}
+ catch(err){alert('I couldn’t prepare that receipt image. Try the photo again.')}
+ e.target.value='';
 });
 
 function saveExpense(e){
  e.preventDefault();
  const amount=+$('amount').value, merchant=$('merchant').value.trim(), date=$('date').value;
- expenses.unshift({id:Date.now(),amount,category:$('category').value,merchant,date,receipt:'',receiptTotal:amount,split:false});
+ const category=$('category').value,purpose=$('purpose').value,receipt=$('receiptData').value||'';
+ expenses.unshift({id:Date.now(),amount,category,purpose,merchant,date,receipt,receiptTotal:amount,split:false});
  localStorage.setItem(KEY,JSON.stringify(expenses));
  const parts=date.split('-').map(Number);if(parts.length===3)viewDate=new Date(parts[0],parts[1]-1,1);
  $('form').close(); render();
@@ -330,7 +347,7 @@ function saveSplit(e){
  const pieces=rows.filter(r=>(+r.querySelector('.splitAmt').value||0)>0);
  if(pieces.length<2){alert('Add at least two amounts to split this expense.');return;}
  const idx=expenses.findIndex(e=>e.id===splitExpenseId), base=Date.now();
- const repl=pieces.map((r,i)=>({id:base+i,amount:+r.querySelector('.splitAmt').value,category:r.querySelector('.splitCat').value,merchant:x.merchant,date:x.date,receipt:'',receiptTotal:x.receiptTotal||x.amount,split:true}));
+ const repl=pieces.map((r,i)=>({id:base+i,amount:+r.querySelector('.splitAmt').value,category:r.querySelector('.splitCat').value,purpose:(r.querySelector('.splitCat').value==='Real Estate'?'Real Estate':r.querySelector('.splitCat').value==='Sipsters'?'Sipsters':(x.purpose||'Personal / Household')),merchant:x.merchant,date:x.date,receipt:x.receipt||'',receiptTotal:x.receiptTotal||x.amount,split:true}));
  expenses.splice(idx,1,...repl);localStorage.setItem(KEY,JSON.stringify(expenses));$('splitDialog').close();render();
 }
 function del(id){if(confirm('Delete this transaction?')){expenses=expenses.filter(x=>x.id!==id);localStorage.setItem(KEY,JSON.stringify(expenses));render()}}
@@ -341,11 +358,12 @@ function render(){
  const monthLabel=viewDate.toLocaleDateString('en-US',{month:'long',year:'numeric'});
  $('monthName').textContent=monthLabel || `${viewDate.getMonth()+1}/${viewDate.getFullYear()}`;
  $('monthTotal').textContent=money(m.reduce((s,x)=>s+x.amount,0));
- $('businessTotal').textContent=money(m.filter(x=>isBusinessCategory(x.category)).reduce((s,x)=>s+x.amount,0));
+ $('businessTotal').textContent=money(m.filter(isBusiness).reduce((s,x)=>s+x.amount,0));
+ $('personalTotal').textContent=money(m.filter(x=>!isBusiness(x)).reduce((s,x)=>s+x.amount,0));
  const sums={};m.forEach(x=>sums[x.category]=(sums[x.category]||0)+x.amount);const max=Math.max(1,...Object.values(sums));
  $('cats').innerHTML=Object.entries(sums).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<div style="margin:10px 0"><div class="row" style="padding:0;border:0"><span>${c}</span><b>${money(v)}</b></div><div class="catbar"><i style="width:${v/max*100}%"></i></div></div>`).join('')||'<div class="muted">No spending recorded for this month.</div>';
  const recent=m.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).slice(0,30);
- $('txns').innerHTML=recent.map(x=>`<div class="row"><div><b>${x.merchant||x.category}</b><div class="muted">${x.date} · ${x.category}</div></div><div style="text-align:right"><div class="amt">${money(x.amount)}</div><button class="danger" onclick="openSplit(${x.id})">split</button> <button class="danger" onclick="del(${x.id})">delete</button></div></div>`).join('')||'<div class="muted">No expenses in this month.</div>';
+ $('txns').innerHTML=recent.map(x=>`<div class="row"><div><b>${x.merchant||x.category}</b><div class="muted">${x.date} · ${x.category} · ${purposeOf(x)}${x.receipt?' · 🧾':''}</div></div><div style="text-align:right"><div class="amt">${money(x.amount)}</div><button class="danger" onclick="openSplit(${x.id})">split</button> <button class="danger" onclick="del(${x.id})">delete</button></div></div>`).join('')||'<div class="muted">No expenses in this month.</div>';
 }
 
 function downloadFile(name,content,type){
@@ -359,17 +377,19 @@ function csvCell(v){
  const s=String(v??'');
  return '"'+s.replace(/"/g,'""')+'"';
 }
+function purposeOf(x){return x.purpose||(x.category==='Sipsters'?'Sipsters':x.category==='Real Estate'?'Real Estate':'Personal / Household')}
 function isBusinessCategory(category){return category==='Sipsters'||category==='Real Estate';}
+function isBusiness(x){return purposeOf(x)!=='Personal / Household';}
 function exportExcel(){
- const rows=[['Date','Store / Note','Category','Amount','Business / Tax Expense?','Split Receipt','Original Receipt Total']];
+ const rows=[['Date','Store / Note','Category','Purpose','Amount','Business / Tax Expense?','Receipt Saved?','Split Receipt','Original Receipt Total']];
  expenses.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>{
-   rows.push([x.date,x.merchant||'',x.category||'',Number(x.amount).toFixed(2),isBusinessCategory(x.category)?'Yes':'No',x.split?'Yes':'No',Number(x.receiptTotal??x.amount).toFixed(2)]);
+   rows.push([x.date,x.merchant||'',x.category||'',purposeOf(x),Number(x.amount).toFixed(2),isBusiness(x)?'Yes':'No',x.receipt?'Yes':'No',x.split?'Yes':'No',Number(x.receiptTotal??x.amount).toFixed(2)]);
  });
  const csv='\uFEFF'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
  downloadFile('SpendSnap_Transactions.csv',csv,'text/csv;charset=utf-8');
 }
 function exportBackup(){
- const data={app:'SpendSnap',version:13,exportedAt:new Date().toISOString(),expenses};
+ const data={app:'SpendSnap',version:14,exportedAt:new Date().toISOString(),expenses};
  downloadFile('SpendSnap_Backup.json',JSON.stringify(data,null,2),'application/json');
 }
 function restoreBackup(ev){

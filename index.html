@@ -26,7 +26,7 @@ small{color:#777}.danger,.linkbtn{color:#8b1020;background:none;padding:5px;widt
 </style>
 </head>
 <body>
-<h1>SpendSnap</h1><p class="sub">Scan once. Find anything later. · V16</p>
+<h1>SpendSnap</h1><p class="sub">Scan once. Find anything later. · V17</p>
 
 <div class="card">
  <div class="label">Dashboard</div>
@@ -158,7 +158,7 @@ async function migrateV14Receipts(){
 
 function detectPayment(raw){
  const t=String(raw||'').replace(/\s+/g,' ');
- if(/\b(cash|cash tendered|cash paid)\b/i.test(t))return 'Cash';
+ if(/\b(?:visa|mastercard|master card|amex|discover|debit|credit|apple pay|google pay)\b/i.test(t)===false && /\b(cash|cash tendered|cash paid)\b/i.test(t))return 'Cash';
  const last4=(t.match(/\b(?:ending|ends? in|acct|account|card|x{2,}|[*•]{2,})\s*[:#-]?\s*(\d{4})\b/i)||[])[1];
  let brand='';
  if(/\bvisa\b/i.test(t))brand='Visa';
@@ -279,7 +279,7 @@ function parseReceipt(text){
    const picks=[];
    lines.slice(0,12).forEach((l,i)=>{
      const c=l.replace(/[^\w &'#.-]/g,' ').replace(/\s+/g,' ').trim();
-     if(!/[A-Za-z]{3}/.test(c)||c.length<3||c.length>50||bad.test(c)||/^\s*\d/.test(c))return;
+     if(!/[A-Za-z]{3}/.test(c)||c.length<3||c.length>42||bad.test(c)||/^\s*\d/.test(c)||/\b(have a nice day|thank you|thanks for shopping|visit again|save big|rewards|member|points earned)\b/i.test(c)||/\d{3,}/.test(c)||/[!?]{2,}/.test(c))return;
      let score=22-(i*1.5);
      if(/^[A-Za-z][A-Za-z0-9 &'#.-]+$/.test(c))score+=4;
      if(/[A-Za-z]{4,}/.test(c))score+=3;
@@ -292,19 +292,36 @@ function parseReceipt(text){
  }
  const merchantConfidence=merchantScore>=20?'high':merchantScore>=12?'medium':'low';
 
- let receiptDate=null;
- for(const l of lines){
+ // Prefer the actual transaction date, not return deadlines or promotional dates.
+ const dateCandidates=[];
+ const now=new Date();now.setHours(23,59,59,999);
+ lines.forEach((line,i)=>{
    const re=/\b(0?[1-9]|1[0-2])[\/\-.](0?[1-9]|[12]\d|3[01])[\/\-.]((?:19|20)?\d{2})\b/g;
-   for(const m of l.matchAll(re)){
+   for(const m of line.matchAll(re)){
      let y=+m[3];if(y<100)y+=y>=70?1900:2000;
      const mo=+m[1],d=+m[2],dt=new Date(y,mo-1,d);
-     if(dt.getFullYear()===y&&dt.getMonth()===mo-1&&dt.getDate()===d){
-       receiptDate=`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;break;
-     }
+     if(dt.getFullYear()!==y||dt.getMonth()!==mo-1||dt.getDate()!==d)continue;
+     const context=lines.slice(Math.max(0,i-1),Math.min(lines.length,i+2)).join(' ').toLowerCase();
+     const local=line.toLowerCase();
+     let score=15;
+     if(/\b(?:transaction|purchase|sale|receipt)\s*(?:date|on)?\b|\bdate\s*[:#]/i.test(local))score+=25;
+     if(/\b(?:time|cashier|register|terminal|trans(?:action)?\s*#)\b/i.test(local))score+=7;
+     if(/\b(?:return|refund|exchange|expire|expiration|valid|coupon|redeem|offer|warranty|by|until)\b/i.test(local))score-=85;
+     if(/\b(?:return|refund|exchange|expire|expiration|valid until|return by)\b/i.test(context))score-=18;
+     const days=(now-dt)/86400000;
+     if(days<0)score-=70;
+     else if(days<=14)score+=20;
+     else if(days<=90)score+=12;
+     else if(days<=365)score+=3;
+     else score-=8;
+     score+=Math.max(0,7-i/5);
+     dateCandidates.push({date:`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`,score});
    }
-   if(receiptDate)break;
- }
- return {amount,merchant,date:receiptDate,payment:detectPayment(raw),amountConfidence,merchantConfidence,rawText:raw};
+ });
+ dateCandidates.sort((a,b)=>b.score-a.score);
+ const receiptDate=dateCandidates[0]?.score>=15?dateCandidates[0].date:null;
+ const dateConfidence=!dateCandidates.length?'low':dateCandidates[0].score>=42?'high':dateCandidates[0].score>=25?'medium':'low';
+ return {amount,merchant,date:receiptDate,payment:detectPayment(raw),amountConfidence,merchantConfidence,dateConfidence,rawText:raw};
 }
 
 function rememberMerchantCorrection(rawText, merchant){
@@ -316,7 +333,7 @@ function rememberMerchantCorrection(rawText, merchant){
    const learned=JSON.parse(localStorage.getItem('spendsnap_merchant_aliases')||'{}');
    for(const line of top){
      const alias=line.toLowerCase().replace(/[^a-z0-9]/g,'');
-     if(alias.length>=4&&alias.length<=45){learned[alias]=merchant;break;}
+     if(alias.length>=4&&alias.length<=45&&!/\d{3,}|thank|welcome|return|receipt|store|visit|cashier|date/i.test(alias)){learned[alias]=merchant;break;}
    }
    localStorage.setItem('spendsnap_merchant_aliases',JSON.stringify(learned));
  }catch(_){}
@@ -374,7 +391,8 @@ async function scanReceipt(data){
      amountConfidence:bestAmount.amountConfidence||'low',
      merchant:bestMerchant.merchant||combined.merchant||f1.merchant,
      merchantConfidence:bestMerchant.merchantConfidence||'low',
-     date:f1.date||(f2&&f2.date)||combined.date,
+     date:([f1,f2,combined].filter(x=>x?.date).sort((a,b)=>(rank[b.dateConfidence]||0)-(rank[a.dateConfidence]||0))[0]||{}).date,
+     dateConfidence:([f1,f2,combined].filter(x=>x?.date).sort((a,b)=>(rank[b.dateConfidence]||0)-(rank[a.dateConfidence]||0))[0]||{}).dateConfidence||'low',
      payment:f1.payment||(f2&&f2.payment)||combined.payment,
      rawText:(combined&&combined.rawText)||text1
    };
@@ -386,7 +404,7 @@ async function scanReceipt(data){
    if(found.payment)$('payment').value=found.payment;
 
    const bits=[];if(found.merchant)bits.push(found.merchant);if(found.amount)bits.push(money(found.amount));if(found.date)bits.push(new Date(found.date+'T12:00:00').toLocaleDateString('en-US'));if(found.payment)bits.push(found.payment);
-   const needsCheck=found.amountConfidence!=='high'||found.merchantConfidence==='low';
+   const needsCheck=found.amountConfidence!=='high'||found.merchantConfidence==='low'||found.dateConfidence!=='high';
    s.textContent=bits.length
      ? 'I found '+bits.join(' · ')+(needsCheck?'. Please verify the highlighted details before saving.':'. Check them, choose a category, and save.')
      :'I couldn’t confidently read this one. Enter or correct the details, choose a category, and save.';
@@ -506,11 +524,11 @@ async function exportPackage(useFiltered=false){
  if(!window.JSZip){alert('The ZIP exporter could not load. Try again while connected to the internet.');return}
  const zip=new JSZip();zip.file('SpendSnap_Transactions.csv',csvFor(rows));const folder=zip.folder('Receipts'),ids=new Set();let count=0;
  for(const x of rows){if(!x.receiptId||ids.has(x.receiptId))continue;ids.add(x.receiptId);const data=await getReceipt(x.receiptId);if(data){const first=rows.find(z=>z.receiptId===x.receiptId)||x;folder.file(receiptFilename(first),data.split(',')[1],{base64:true});count++}}
- zip.file('README.txt',`SpendSnap V16 export\nTransactions/allocations: ${rows.length}\nUnique receipt images: ${count}\nA split receipt appears on multiple spreadsheet rows but the receipt image is included only once.\n`);
+ zip.file('README.txt',`SpendSnap V17 export\nTransactions/allocations: ${rows.length}\nUnique receipt images: ${count}\nA split receipt appears on multiple spreadsheet rows but the receipt image is included only once.\n`);
  const blob=await zip.generateAsync({type:'blob'});downloadBlob(`SpendSnap_Export_${today()}.zip`,blob)
 }
 async function exportBackup(){
- const receipts=await allReceipts();const data={app:'SpendSnap',version:16,exportedAt:new Date().toISOString(),expenses,receipts};downloadFile('SpendSnap_Backup_V16.json',JSON.stringify(data),'application/json')
+ const receipts=await allReceipts();const data={app:'SpendSnap',version:17,exportedAt:new Date().toISOString(),expenses,receipts};downloadFile('SpendSnap_Backup_V17.json',JSON.stringify(data),'application/json')
 }
 function restoreBackup(ev){const file=ev.target.files?.[0];if(!file)return;const r=new FileReader();r.onload=async()=>{try{const data=JSON.parse(r.result);if(!data||!Array.isArray(data.expenses))throw Error();if(!confirm(`Restore ${data.expenses.length} records? This replaces the transaction data currently in SpendSnap.`))return;expenses=data.expenses;if(Array.isArray(data.receipts))for(const rec of data.receipts)await putReceipt(rec.id,rec.data);saveMeta();await migrateV14Receipts();render();alert('SpendSnap backup restored.')}catch(_){alert('That file is not a valid SpendSnap backup.')}ev.target.value=''};r.readAsText(file)}
 

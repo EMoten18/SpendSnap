@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="SpendSnap">
+<title>SpendSnap</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#f7eee9">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#171717;background:#f5f5f7}
+*{box-sizing:border-box}body{margin:0;padding:18px;max-width:720px;margin:auto}h1{margin:8px 0 2px;font-size:30px}.sub{color:#777;margin:0 0 18px}
+.card{background:#fff;border-radius:18px;padding:18px;margin:12px 0;box-shadow:0 2px 12px #0000000d}.total{font-size:36px;font-weight:800}.label{font-size:12px;color:#777;text-transform:uppercase;letter-spacing:.07em}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+button,.button{border:0;border-radius:14px;padding:14px;font-size:15px;font-weight:700;background:#171717;color:#fff;text-align:center;display:block;width:100%;cursor:pointer}.secondary{background:#ececef;color:#171717}
+input,select,textarea{width:100%;padding:12px;border:1px solid #ddd;border-radius:12px;font-size:16px;margin:5px 0 11px;background:#fff}textarea{min-height:70px;resize:vertical}
+.row{display:flex;justify-content:space-between;gap:10px;padding:11px 0;border-bottom:1px solid #eee}.row:last-child{border:0}.muted{color:#777;font-size:13px}.amt{font-weight:700}.pill{display:inline-block;background:#f0f0f2;border-radius:999px;padding:4px 8px;margin:3px 3px 0 0;font-size:12px}
+dialog{border:0;border-radius:20px;width:min(94%,560px);padding:20px;max-height:90vh;overflow:auto}dialog::backdrop{background:#0008}
+#receipt{display:none}.catbar{height:8px;background:#eee;border-radius:8px;overflow:hidden;margin-top:5px}.catbar i{display:block;height:100%;background:#222}
+small{color:#777}.danger,.linkbtn{color:#8b1020;background:none;padding:5px;width:auto;font-size:13px;display:inline}.linkbtn{color:#171717}.status{padding:10px;border-radius:12px;background:#f1f1f3;margin-bottom:12px;display:none}.preview{max-height:180px;max-width:100%;border-radius:12px;margin:0 0 12px}
+.stat{padding:12px;border-radius:14px;background:#f6f6f7}.stat b{display:block;font-size:20px;margin-top:3px}.filterbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}.checkline{display:flex;align-items:center;gap:8px;margin:6px 0 12px}.checkline input{width:auto;margin:0}
+@media(max-width:480px){.grid3{grid-template-columns:1fr 1fr}.filterbar{grid-template-columns:1fr}.total{font-size:32px}}
+</style>
+</head>
+<body>
+<h1>SpendSnap</h1><p class="sub">Scan once. Find anything later. · V17</p>
+
+<div class="card">
+ <div class="label">Dashboard</div>
+ <div style="display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;margin:8px 0">
+  <button class="secondary" style="padding:9px" onclick="changeMonth(-1)">‹</button>
+  <div id="monthName" style="text-align:center;font-weight:800;font-size:18px"></div>
+  <button class="secondary" style="padding:9px" onclick="changeMonth(1)">›</button>
+ </div>
+ <div class="total" id="monthTotal">$0.00</div>
+ <div class="muted">Total spending in selected month</div>
+ <div class="grid3" style="margin-top:14px">
+  <div class="stat"><div class="label">Household</div><b id="personalTotal">$0</b></div>
+  <div class="stat"><div class="label">Business</div><b id="businessTotal">$0</b></div>
+  <div class="stat"><div class="label">Sipsters</div><b id="sipstersTotal">$0</b></div>
+  <div class="stat"><div class="label">Real Estate</div><b id="realEstateTotal">$0</b></div>
+  <div class="stat"><div class="label">Receipts</div><b id="receiptCount">0</b></div>
+  <div class="stat"><div class="label">Missing</div><b id="missingCount">0</b></div>
+ </div>
+</div>
+
+<div class="grid">
+<label class="button">📸 Scan Receipt<input id="receipt" type="file" accept="image/*" capture="environment"></label>
+<button onclick="openForm()">✏️ Enter Purchase</button>
+</div>
+
+<div class="card">
+ <b>Find / Filter</b>
+ <div class="muted" style="margin:5px 0 10px">Stack any filters you want, then view or export exactly those records.</div>
+ <div class="filterbar">
+  <div><label>From</label><input id="fFrom" type="date"></div>
+  <div><label>To</label><input id="fTo" type="date"></div>
+  <div><label>Purpose</label><select id="fPurpose"><option value="">Any purpose</option><option>Personal / Household</option><option>Sipsters</option><option>Real Estate</option></select></div>
+  <div><label>Who</label><select id="fWho"><option value="">Anyone / Household</option><option>Household</option><option>Erica</option><option>Mark</option><option>Other</option></select></div>
+  <div><label>Category</label><select id="fCategory"><option value="">Any category</option></select></div>
+  <div><label>Payment</label><input id="fPayment" placeholder="Visa 4821, Cash…"></div>
+  <div><label>Receipt</label><select id="fReceipt"><option value="">Any</option><option value="yes">Has receipt</option><option value="no">Missing receipt</option></select></div>
+  <div><label>Business / Tax</label><select id="fTax"><option value="">Any</option><option value="yes">Yes</option><option value="no">No</option></select></div>
+ </div>
+ <label>Store / notes keyword</label><input id="fText" placeholder="Costco, closing gift, event supplies…">
+ <div class="grid"><button class="secondary" onclick="clearFilters()">Clear</button><button onclick="applyFilters()">View Results</button></div>
+ <div id="filterSummary" class="muted" style="margin-top:10px"></div>
+ <button id="exportFilteredBtn" style="margin-top:10px;display:none" onclick="exportPackage(true)">📦 Export Filtered Results + Receipts</button>
+</div>
+
+<div class="card"><b>By category</b><div id="cats" style="margin-top:10px"></div></div>
+<div class="card"><b id="txnTitle">Recent transactions</b><div id="txns" style="margin-top:8px"></div></div>
+
+<div class="card">
+<b>Data &amp; Export</b>
+<div class="muted" style="margin:6px 0 12px">Excel-friendly export, receipt package, and complete backup/restore.</div>
+<div style="display:grid;gap:8px">
+<button type="button" onclick="exportExcel(false)">📊 Export All to Excel</button>
+<button type="button" onclick="exportPackage(false)">📦 Export All + Receipt Images</button>
+<button type="button" class="secondary" onclick="exportBackup()">💾 Backup SpendSnap</button>
+<label class="secondary" style="display:block;text-align:center;padding:12px;border-radius:12px;cursor:pointer">↩️ Restore Backup<input type="file" accept=".json,application/json" onchange="restoreBackup(event)" style="display:none"></label>
+</div>
+</div>
+
+<dialog id="form">
+<form method="dialog" onsubmit="saveExpense(event)">
+<h2 style="margin-top:0" id="formTitle">Add purchase</h2>
+<div id="ocrStatus" class="status"></div>
+<img id="receiptPreview" class="preview" style="display:none">
+<input id="editId" type="hidden"><input id="receiptData" type="hidden"><input id="existingReceiptId" type="hidden">
+<label>Amount</label><input id="amount" inputmode="decimal" type="number" min="0" step=".01" required placeholder="0.00">
+<label>Store <small>(optional)</small></label><input id="merchant" placeholder="Costco, Target, etc.">
+<label>Date</label><input id="date" type="date" required>
+<label>Category</label><select id="category" required></select>
+<label>Purpose</label><select id="purpose"><option>Personal / Household</option><option>Real Estate</option><option>Sipsters</option></select>
+<label>Who <small>(optional — blank means Household)</small></label><select id="who"><option value="">Household / blank</option><option>Erica</option><option>Mark</option><option>Other</option></select>
+<label>Payment method <small>(optional; scanned when possible)</small></label><input id="payment" list="paymentMethods" placeholder="Visa ••••4821, Cash, Apple Pay…"><datalist id="paymentMethods"></datalist>
+<label>Notes <small>(optional)</small></label><textarea id="notes" placeholder="Client closing gift, Sipsters event supplies, etc."></textarea>
+<label class="checkline"><input id="taxDeductible" type="checkbox"> Treat this allocation as business/tax expense</label>
+<div class="muted" style="margin:-4px 0 12px">Sipsters and Real Estate turn this on automatically, but you can change it.</div>
+<div class="grid"><button type="button" class="secondary" onclick="$('form').close()">Cancel</button><button type="submit">Save</button></div>
+</form></dialog>
+
+<dialog id="splitDialog">
+<form method="dialog" onsubmit="saveSplit(event)">
+<h2 style="margin-top:0">Split purchase</h2>
+<div id="splitOriginal" class="muted" style="margin-bottom:12px"></div>
+<div id="splitRows"></div>
+<button type="button" class="secondary" onclick="addSplitRow()">+ Add another allocation</button>
+<div id="splitStatus" style="padding:10px 0;font-weight:700"></div>
+<div class="grid"><button type="button" class="secondary" onclick="$('splitDialog').close()">Cancel</button><button type="submit">Save Split</button></div>
+</form></dialog>
+
+<dialog id="receiptDialog">
+<h2 style="margin-top:0">Receipt</h2><img id="receiptFull" style="width:100%;border-radius:12px">
+<div class="grid" style="margin-top:12px"><button class="secondary" onclick="$('receiptDialog').close()">Close</button><button onclick="saveCurrentReceipt()">Save / Share</button></div>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+const $=id=>document.getElementById(id), KEY='spendsnap_expenses', DB='spendsnap_receipts_v15';
+const CATEGORIES=['Groceries','Dining Out','Shopping','Home','Bills','Gas / Car','Medical','Entertainment','Personal Care','Pets','Real Estate','Sipsters','Other'];
+let expenses=JSON.parse(localStorage.getItem(KEY)||'[]'), viewDate=new Date(), filtered=null, currentReceiptId=null;
+function money(n){return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(n)||0)}
+function today(){return new Date().toISOString().slice(0,10)}
+function purposeOf(x){return x.purpose||(x.category==='Sipsters'?'Sipsters':x.category==='Real Estate'?'Real Estate':'Personal / Household')}
+function whoOf(x){return x.who||'Household'}
+function isBusiness(x){return x.taxDeductible!==undefined?!!x.taxDeductible:purposeOf(x)!=='Personal / Household'}
+function receiptKey(x){return x.receiptId||''}
+function saveMeta(){localStorage.setItem(KEY,JSON.stringify(expenses))}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
+function safeName(s){return String(s||'Receipt').replace(/[^a-z0-9 _.-]/gi,'').trim().replace(/\s+/g,'_').slice(0,45)||'Receipt'}
+CATEGORIES.forEach(c=>{for(const id of ['category','fCategory']){const el=$(id);if(el){const o=document.createElement('option');o.value=c;o.textContent=c;el.appendChild(o)}}});
+
+function openDB(){return new Promise((res,rej)=>{const r=indexedDB.open(DB,1);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains('receipts'))r.result.createObjectStore('receipts',{keyPath:'id'})};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
+async function putReceipt(id,data){if(!id||!data)return;const db=await openDB();return new Promise((res,rej)=>{const tx=db.transaction('receipts','readwrite');tx.objectStore('receipts').put({id,data});tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error)})}
+async function getReceipt(id){if(!id)return '';const db=await openDB();return new Promise((res,rej)=>{const r=db.transaction('receipts').objectStore('receipts').get(id);r.onsuccess=()=>res(r.result?.data||'');r.onerror=()=>rej(r.error)})}
+async function allReceipts(){const db=await openDB();return new Promise((res,rej)=>{const r=db.transaction('receipts').objectStore('receipts').getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error)})}
+async function migrateV14Receipts(){
+ let changed=false, map=new Map();
+ for(const x of expenses){
+   if(x.receipt && !x.receiptId){
+     const sig=[x.date,x.merchant,x.receiptTotal||x.amount,x.receipt.slice(0,80)].join('|');
+     let id=map.get(sig); if(!id){id='r_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);map.set(sig,id);await putReceipt(id,x.receipt)}
+     x.receiptId=id; delete x.receipt; changed=true;
+   }
+   if(x.taxDeductible===undefined)x.taxDeductible=purposeOf(x)!=='Personal / Household';
+   if(x.who===undefined)x.who='';
+   if(x.notes===undefined)x.notes='';
+   if(x.payment===undefined)x.payment='';
+ }
+ if(changed)saveMeta();
+}
+
+function detectPayment(raw){
+ const t=String(raw||'').replace(/\s+/g,' ');
+ if(/\b(?:visa|mastercard|master card|amex|discover|debit|credit|apple pay|google pay)\b/i.test(t)===false && /\b(cash|cash tendered|cash paid)\b/i.test(t))return 'Cash';
+ const last4=(t.match(/\b(?:ending|ends? in|acct|account|card|x{2,}|[*•]{2,})\s*[:#-]?\s*(\d{4})\b/i)||[])[1];
+ let brand='';
+ if(/\bvisa\b/i.test(t))brand='Visa';
+ else if(/\bmaster\s*card\b|\bmastercard\b|\bmc\b/i.test(t))brand='Mastercard';
+ else if(/\bamex\b|\bamerican express\b/i.test(t))brand='Amex';
+ else if(/\bdiscover\b/i.test(t))brand='Discover';
+ else if(/\bdebit\b/i.test(t))brand='Debit';
+ else if(/\bapple pay\b/i.test(t))brand='Apple Pay';
+ else if(/\bgoogle pay\b/i.test(t))brand='Google Pay';
+ if(brand&&last4)return brand+' ••••'+last4;
+ if(brand)return brand;
+ const loose=t.match(/\b(visa|mastercard|amex|discover|debit)[^\n]{0,24}?(\d{4})\b/i);
+ return loose?(loose[1][0].toUpperCase()+loose[1].slice(1).toLowerCase()+' ••••'+loose[2]):'';
+}
+
+function parseReceipt(text){
+ const raw=text||'';
+ const lines=raw.split(/\n/).map(s=>s.trim()).filter(Boolean);
+
+ function normalizeMoneyText(s){
+   return String(s||'')
+     .replace(/[Oo](?=\d)/g,'0').replace(/(?<=\d)[Oo]/g,'0')
+     .replace(/[Il](?=\d)/g,'1').replace(/(?<=\d)[Il]/g,'1')
+     .replace(/[Ss](?=\d)/g,'5').replace(/(?<=\d)[Ss]/g,'5')
+     .replace(/(\d)\s*[,;:]\s*(\d{2})\b/g,'$1.$2');
+ }
+ function moneyValues(line){
+   const vals=[], t=normalizeMoneyText(line);
+   for(const m of t.matchAll(/(?:\$?\s*)(\d{1,6})\s*[.]\s*(\d{2})\b/g)){
+     const v=Number(m[1]+'.'+m[2]);
+     if(Number.isFinite(v)&&v>0&&v<100000) vals.push(v);
+   }
+   return vals;
+ }
+
+ // V16 total engine: rank explicit total labels, punish tender/change/subtotal,
+ // then validate candidates against subtotal + tax when those are readable.
+ const candidates=[];
+ let subtotal=null, tax=null;
+ lines.forEach((line,i)=>{
+   const vals=moneyValues(line), low=line.toLowerCase();
+   if(!vals.length)return;
+   if(/\bsub\s*total\b|\bsubtotal\b/i.test(line)) subtotal=vals[vals.length-1];
+   if(/\b(?:sales\s*)?tax\b/i.test(line) && !/\btaxable\b/i.test(line)) tax=vals[vals.length-1];
+
+   vals.forEach(v=>{
+     let score=0;
+     if(/\bgrand\s*total\b/i.test(line)) score+=32;
+     if(/\bamount\s*(?:due|paid)\b/i.test(line)) score+=30;
+     if(/\bbalance\s*due\b/i.test(line)) score+=29;
+     if(/\btotal\s*(?:sale|due|amount)?\b/i.test(line) && !/\bsub\s*total\b|\bsubtotal\b/i.test(line)) score+=24;
+     if(/\b(?:visa|mastercard|master card|amex|discover|debit|credit)\b/i.test(line)) score+=5;
+     if(/\bsub\s*total\b|\bsubtotal\b/i.test(line)) score-=28;
+     if(/\b(?:tax|change|cashback|cash back|savings|discount|coupon|points|tender|cash tendered|gift card|balance remaining)\b/i.test(line)) score-=18;
+     if(/\b(?:phone|tel|store|transaction|auth|approval|reference|ref|invoice)\b/i.test(line)) score-=5;
+     score += Math.min(5,Math.floor(i/Math.max(1,lines.length/5)));
+     candidates.push({v,score,i,line});
+   });
+ });
+
+ if(subtotal!=null && tax!=null){
+   const expected=+(subtotal+tax).toFixed(2);
+   candidates.forEach(c=>{
+     const diff=Math.abs(c.v-expected);
+     if(diff<=0.02)c.score+=28;
+     else if(diff<=0.10)c.score+=12;
+   });
+ }
+ const repeats={};
+ candidates.forEach(c=>repeats[c.v.toFixed(2)]=(repeats[c.v.toFixed(2)]||0)+1);
+ candidates.forEach(c=>{if(repeats[c.v.toFixed(2)]>=2)c.score+=5;});
+ candidates.sort((a,b)=>b.score-a.score||b.i-a.i);
+ const winner=candidates[0];
+ const amount=winner&&winner.score>=12?winner.v:null;
+ const amountConfidence=!winner?'low':winner.score>=35?'high':winner.score>=22?'medium':'low';
+
+ // V16 merchant engine: known merchants + receipt-top scoring + learned corrections.
+ const all=raw.toLowerCase().replace(/\s+/g,' ');
+ const compact=all.replace(/[^a-z0-9]/g,'');
+ const merchants=[
+  ['Kroger',[/\bkroger\b/i,/kroger\.com/i,/kroger\s*plus/i,/plus\s*customer/i]],
+  ['Marshalls',[/\bmarshalls\b/i,/marshallsfeedback/i]],
+  ['TJ Maxx',[/\btj\s*maxx\b/i,/tjmaxx/i,/tjxstyle/i]],
+  ['HomeGoods',[/\bhomegoods\b/i,/homegoods\.com/i]],
+  ['Meijer',[/\bmeijer\b/i,/meijer\.com/i,/mperks/i]],
+  ['Target',[/\btarget\b/i,/target\.com/i,/target\s*circle/i]],
+  ['Costco',[/\bcostco\b/i,/costco\.com/i,/costco\s*wholesale/i]],
+  ['Walmart',[/\bwalmart\b/i,/walmart\.com/i]],
+  ['Home Depot',[/\bhome\s*depot\b/i,/homedepot\.com/i]],
+  ["Lowe's",[/\blowe'?s\b/i,/lowes\.com/i]],
+  ['CVS',[/\bcvs\b/i,/cvs\.com/i,/extracare/i]],
+  ['Walgreens',[/\bwalgreens\b/i,/walgreens\.com/i,/mywalgreens/i]],
+  ['Aldi',[/\baldi\b/i,/aldi\.us/i]],
+  ['Whole Foods',[/\bwhole\s*foods\b/i,/wholefoodsmarket/i]],
+  ["Trader Joe's",[/\btrader\s*joe'?s\b/i]],
+  ["Sam's Club",[/\bsam'?s\s*club\b/i,/samsclub\.com/i]],
+  ['Menards',[/\bmenards\b/i,/menards\.com/i]]
+ ];
+ let merchant='', merchantScore=0;
+ for(const [name,clues] of merchants){
+   let score=0;
+   for(const clue of clues)if(clue.test(all))score+=8;
+   const key=name.toLowerCase().replace(/[^a-z0-9]/g,'');
+   if(key.length>=4&&compact.includes(key))score+=5;
+   if(score>merchantScore){merchantScore=score;merchant=name;}
+ }
+
+ // Learn exact merchant corrections locally on this device.
+ try{
+   const learned=JSON.parse(localStorage.getItem('spendsnap_merchant_aliases')||'{}');
+   for(const [alias,name] of Object.entries(learned)){
+     if(alias.length>=3 && compact.includes(alias) && 25>merchantScore){merchant=name;merchantScore=25;}
+   }
+ }catch(_){}
+
+ if(!merchant){
+   const bad=/\b(receipt|store|tel|phone|www|http|date|time|customer|cashier|register|terminal|transaction|address|road|rd\.|mile|subtotal|total|balance|purchase|debit|credit|visa|mastercard|sale|return|item|tax|thank|welcome|order|invoice|auth|approved|copy)\b/i;
+   const picks=[];
+   lines.slice(0,12).forEach((l,i)=>{
+     const c=l.replace(/[^\w &'#.-]/g,' ').replace(/\s+/g,' ').trim();
+     if(!/[A-Za-z]{3}/.test(c)||c.length<3||c.length>42||bad.test(c)||/^\s*\d/.test(c)||/\b(have a nice day|thank you|thanks for shopping|visit again|save big|rewards|member|points earned)\b/i.test(c)||/\d{3,}/.test(c)||/[!?]{2,}/.test(c))return;
+     let score=22-(i*1.5);
+     if(/^[A-Za-z][A-Za-z0-9 &'#.-]+$/.test(c))score+=4;
+     if(/[A-Za-z]{4,}/.test(c))score+=3;
+     if(/\b(?:inc|llc|market|mart|foods|pharmacy|restaurant|cafe|hardware|outlet|shop|store)\b/i.test(c))score+=5;
+     if(/\d{3}[-.)\s]\d{3}/.test(c))score-=8;
+     picks.push({c,score});
+   });
+   picks.sort((a,b)=>b.score-a.score);
+   if(picks[0]){merchant=picks[0].c;merchantScore=picks[0].score;}
+ }
+ const merchantConfidence=merchantScore>=20?'high':merchantScore>=12?'medium':'low';
+
+ // Prefer the actual transaction date, not return deadlines or promotional dates.
+ const dateCandidates=[];
+ const now=new Date();now.setHours(23,59,59,999);
+ lines.forEach((line,i)=>{
+   const re=/\b(0?[1-9]|1[0-2])[\/\-.](0?[1-9]|[12]\d|3[01])[\/\-.]((?:19|20)?\d{2})\b/g;
+   for(const m of line.matchAll(re)){
+     let y=+m[3];if(y<100)y+=y>=70?1900:2000;
+     const mo=+m[1],d=+m[2],dt=new Date(y,mo-1,d);
+     if(dt.getFullYear()!==y||dt.getMonth()!==mo-1||dt.getDate()!==d)continue;
+     const context=lines.slice(Math.max(0,i-1),Math.min(lines.length,i+2)).join(' ').toLowerCase();
+     const local=line.toLowerCase();
+     let score=15;
+     if(/\b(?:transaction|purchase|sale|receipt)\s*(?:date|on)?\b|\bdate\s*[:#]/i.test(local))score+=25;
+     if(/\b(?:time|cashier|register|terminal|trans(?:action)?\s*#)\b/i.test(local))score+=7;
+     if(/\b(?:return|refund|exchange|expire|expiration|valid|coupon|redeem|offer|warranty|by|until)\b/i.test(local))score-=85;
+     if(/\b(?:return|refund|exchange|expire|expiration|valid until|return by)\b/i.test(context))score-=18;
+     const days=(now-dt)/86400000;
+     if(days<0)score-=70;
+     else if(days<=14)score+=20;
+     else if(days<=90)score+=12;
+     else if(days<=365)score+=3;
+     else score-=8;
+     score+=Math.max(0,7-i/5);
+     dateCandidates.push({date:`${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`,score});
+   }
+ });
+ dateCandidates.sort((a,b)=>b.score-a.score);
+ const receiptDate=dateCandidates[0]?.score>=15?dateCandidates[0].date:null;
+ const dateConfidence=!dateCandidates.length?'low':dateCandidates[0].score>=42?'high':dateCandidates[0].score>=25?'medium':'low';
+ return {amount,merchant,date:receiptDate,payment:detectPayment(raw),amountConfidence,merchantConfidence,dateConfidence,rawText:raw};
+}
+
+function rememberMerchantCorrection(rawText, merchant){
+ try{
+   if(!rawText||!merchant)return;
+   const top=rawText.split(/\n/).map(x=>x.trim()).filter(Boolean).slice(0,8);
+   const normalizedMerchant=merchant.toLowerCase().replace(/[^a-z0-9]/g,'');
+   if(normalizedMerchant.length<3)return;
+   const learned=JSON.parse(localStorage.getItem('spendsnap_merchant_aliases')||'{}');
+   for(const line of top){
+     const alias=line.toLowerCase().replace(/[^a-z0-9]/g,'');
+     if(alias.length>=4&&alias.length<=45&&!/\d{3,}|thank|welcome|return|receipt|store|visit|cashier|date/i.test(alias)){learned[alias]=merchant;break;}
+   }
+   localStorage.setItem('spendsnap_merchant_aliases',JSON.stringify(learned));
+ }catch(_){}
+}
+
+async function preprocessReceipt(data){
+ return new Promise((resolve,reject)=>{
+  const img=new Image();
+  img.onload=()=>{
+   try{
+    const maxW=1800, scale=Math.min(1,maxW/img.width);
+    const c=document.createElement('canvas');c.width=Math.max(1,Math.round(img.width*scale));c.height=Math.max(1,Math.round(img.height*scale));
+    const ctx=c.getContext('2d');ctx.drawImage(img,0,0,c.width,c.height);
+    const im=ctx.getImageData(0,0,c.width,c.height), d=im.data;
+    // grayscale + contrast boost helps faded thermal receipts without changing the stored data (the original stored receipt remains unchanged)
+    for(let i=0;i<d.length;i+=4){
+      let g=.299*d[i]+.587*d[i+1]+.114*d[i+2];
+      g=(g-128)*1.65+128; g=Math.max(0,Math.min(255,g));
+      d[i]=d[i+1]=d[i+2]=g;
+    }
+    ctx.putImageData(im,0,0);resolve(c.toDataURL('image/jpeg',.92));
+   }catch(e){reject(e)}
+  };img.onerror=reject;img.src=data;
+ });
+}
+async function scanReceipt(data){
+ const s=$('ocrStatus'); s.style.display='block'; s.textContent='Reading receipt…';
+ try{
+   if(!window.Tesseract) throw new Error('OCR unavailable');
+   const logger=m=>{if(m.status==='recognizing text')s.textContent='Reading receipt… '+Math.round((m.progress||0)*100)+'%';};
+   const first=await Tesseract.recognize(data,'eng',{logger});
+   const text1=first.data.text||'';
+   let f1=parseReceipt(text1), f2=null, combined=f1;
+
+   // V16: second pass also runs when merchant/total confidence is weak,
+   // not only when a field is completely missing.
+   if(!f1.amount||!f1.date||!f1.merchant||f1.amountConfidence!=='high'||f1.merchantConfidence==='low'){
+     s.textContent='Double-checking store and total…';
+     try{
+       const cleaned=await preprocessReceipt(data);
+       const second=await Tesseract.recognize(cleaned,'eng',{logger});
+       const text2=second.data.text||'';
+       f2=parseReceipt(text2);
+       combined=parseReceipt(text1+'\n'+text2);
+     }catch(_){}
+   }
+
+   // Prefer the combined interpretation when it is confident; otherwise preserve
+   // a strong first/second-pass field instead of blindly overwriting it.
+   const rank={low:1,medium:2,high:3};
+   const bestAmount=[f1,f2,combined].filter(Boolean).sort((a,b)=>(rank[b.amountConfidence]||0)-(rank[a.amountConfidence]||0))[0]||f1;
+   const bestMerchant=[f1,f2,combined].filter(Boolean).sort((a,b)=>(rank[b.merchantConfidence]||0)-(rank[a.merchantConfidence]||0))[0]||f1;
+   const found={
+     amount:bestAmount.amount||combined.amount||f1.amount,
+     amountConfidence:bestAmount.amountConfidence||'low',
+     merchant:bestMerchant.merchant||combined.merchant||f1.merchant,
+     merchantConfidence:bestMerchant.merchantConfidence||'low',
+     date:([f1,f2,combined].filter(x=>x?.date).sort((a,b)=>(rank[b.dateConfidence]||0)-(rank[a.dateConfidence]||0))[0]||{}).date,
+     dateConfidence:([f1,f2,combined].filter(x=>x?.date).sort((a,b)=>(rank[b.dateConfidence]||0)-(rank[a.dateConfidence]||0))[0]||{}).dateConfidence||'low',
+     payment:f1.payment||(f2&&f2.payment)||combined.payment,
+     rawText:(combined&&combined.rawText)||text1
+   };
+   window.__spendsnapLastOCR=found;
+
+   if(found.amount)$('amount').value=found.amount.toFixed(2);
+   if(found.merchant)$('merchant').value=found.merchant;
+   if(found.date)$('date').value=found.date;
+   if(found.payment)$('payment').value=found.payment;
+
+   const bits=[];if(found.merchant)bits.push(found.merchant);if(found.amount)bits.push(money(found.amount));if(found.date)bits.push(new Date(found.date+'T12:00:00').toLocaleDateString('en-US'));if(found.payment)bits.push(found.payment);
+   const needsCheck=found.amountConfidence!=='high'||found.merchantConfidence==='low'||found.dateConfidence!=='high';
+   s.textContent=bits.length
+     ? 'I found '+bits.join(' · ')+(needsCheck?'. Please verify the highlighted details before saving.':'. Check them, choose a category, and save.')
+     :'I couldn’t confidently read this one. Enter or correct the details, choose a category, and save.';
+ }catch(err){
+   s.textContent='Receipt reading didn’t cooperate. Enter the amount manually, pick a category, and save.';
+ }
+}
+async function compressReceipt(file){
+ return new Promise((resolve,reject)=>{
+  const img=new Image(),url=URL.createObjectURL(file);
+  img.onload=()=>{
+   const max=1400,scale=Math.min(1,max/Math.max(img.width,img.height));
+   const c=document.createElement('canvas');c.width=Math.round(img.width*scale);c.height=Math.round(img.height*scale);
+   c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+   URL.revokeObjectURL(url); resolve(c.toDataURL('image/jpeg',0.72));
+  };img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Could not read image'))};img.src=url;
+ });
+}
+
+
+
+function resetForm(){
+ $('editId').value='';$('existingReceiptId').value='';$('receiptData').value='';$('amount').value='';$('merchant').value='';$('date').value=today();$('category').value='Groceries';$('purpose').value='Personal / Household';$('who').value='';$('payment').value='';$('notes').value='';$('taxDeductible').checked=false;
+ $('ocrStatus').style.display='none';$('receiptPreview').style.display='none';$('receiptPreview').src='';
+}
+function syncTaxDefault(){if($('purpose').value!=='Personal / Household')$('taxDeductible').checked=true}
+$('purpose').addEventListener('change',syncTaxDefault);
+function openForm(receipt=''){
+ resetForm();$('formTitle').textContent=receipt?'Receipt purchase':'Add purchase';
+ if(receipt){$('receiptData').value=receipt;$('receiptPreview').src=receipt;$('receiptPreview').style.display='block'}
+ $('form').showModal();
+}
+async function editExpense(id){
+ const x=expenses.find(e=>e.id===id);if(!x)return;resetForm();$('formTitle').textContent='Edit transaction';$('editId').value=id;$('existingReceiptId').value=x.receiptId||'';
+ $('amount').value=x.amount;$('merchant').value=x.merchant||'';$('date').value=x.date;$('category').value=x.category||'Other';$('purpose').value=purposeOf(x);$('who').value=x.who||'';$('payment').value=x.payment||'';$('notes').value=x.notes||'';$('taxDeductible').checked=isBusiness(x);
+ if(x.receiptId){const data=await getReceipt(x.receiptId);if(data){$('receiptPreview').src=data;$('receiptPreview').style.display='block'}}
+ $('form').showModal();
+}
+$('receipt').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const data=await compressReceipt(f);openForm(data);scanReceipt(data)}catch(_){alert('I couldn’t prepare that receipt image. Try the photo again.')}e.target.value=''});
+async function saveExpense(e){
+ e.preventDefault();
+ if(window.__spendsnapLastOCR && $('merchant').value.trim() && $('merchant').value.trim()!==window.__spendsnapLastOCR.merchant){rememberMerchantCorrection(window.__spendsnapLastOCR.rawText,$('merchant').value.trim());}
+ const amount=+$('amount').value,merchant=$('merchant').value.trim(),date=$('date').value,category=$('category').value,purpose=$('purpose').value,who=$('who').value,payment=$('payment').value.trim(),notes=$('notes').value.trim(),taxDeductible=$('taxDeductible').checked;
+ const editId=+$('editId').value||null; let receiptId=$('existingReceiptId').value||'';
+ const receiptData=$('receiptData').value||'';
+ if(receiptData){receiptId='r_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);await putReceipt(receiptId,receiptData)}
+ if(!editId){
+   const dup=expenses.find(x=>x.date===date&&Math.abs(Number(x.receiptTotal??x.amount)-amount)<.005&&(x.merchant||'').toLowerCase()===merchant.toLowerCase());
+   if(dup&&!confirm('Possible duplicate: same store, date and amount already exists. Save anyway?'))return;
+   expenses.unshift({id:Date.now(),amount,category,purpose,who,payment,notes,taxDeductible,merchant,date,receiptId,receiptTotal:amount,split:false});
+ }else{
+   const x=expenses.find(z=>z.id===editId);if(!x)return;
+   Object.assign(x,{amount,category,purpose,who,payment,notes,taxDeductible,merchant,date,receiptId,receiptTotal:x.split?(x.receiptTotal||amount):amount});
+ }
+ saveMeta();rememberPayment(payment);const parts=date.split('-').map(Number);if(parts.length===3)viewDate=new Date(parts[0],parts[1]-1,1);$('form').close();render();
+}
+function rememberPayment(p){if(!p)return;let a=JSON.parse(localStorage.getItem('spendsnap_payments')||'[]');if(!a.includes(p)){a.push(p);localStorage.setItem('spendsnap_payments',JSON.stringify(a))}renderPayments()}
+function renderPayments(){const a=[...new Set([...JSON.parse(localStorage.getItem('spendsnap_payments')||'[]'),...expenses.map(x=>x.payment).filter(Boolean)])];$('paymentMethods').innerHTML=a.map(x=>`<option value="${esc(x)}">`).join('')}
+
+let splitExpenseId=null;
+function splitSelect(cls,value,opts){const s=document.createElement('select');s.className=cls;opts.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;s.appendChild(o)});s.value=value||opts[0];return s}
+function openSplit(id){
+ const x=expenses.find(e=>e.id===id);if(!x)return;splitExpenseId=id;$('splitRows').innerHTML='';$('splitOriginal').textContent=(x.merchant||'Purchase')+' · '+money(x.receiptTotal||x.amount)+' · '+x.date;
+ addSplitRow(x.category||'Other','',purposeOf(x));addSplitRow('Other','',purposeOf(x),true);$('splitDialog').showModal();updateSplitStatus();
+}
+function addSplitRow(category='Other',amount='',purpose='Personal / Household',auto=false){
+ const old=document.querySelector('#splitRows .autoRow');if(old){old.classList.remove('autoRow');const a=old.querySelector('.splitAmt');a.readOnly=false}
+ const row=document.createElement('div');row.className='splitRow'+(auto?' autoRow':'');row.style.cssText='border:1px solid #eee;border-radius:12px;padding:8px;margin-bottom:8px';
+ const top=document.createElement('div');top.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:7px';const cat=splitSelect('splitCat',category,CATEGORIES),pur=splitSelect('splitPurpose',purpose,['Personal / Household','Sipsters','Real Estate']);top.append(cat,pur);
+ const bot=document.createElement('div');bot.style.cssText='display:grid;grid-template-columns:1fr 40px;gap:7px;align-items:center';const amt=document.createElement('input');amt.className='splitAmt';amt.type='number';amt.min='0';amt.step='.01';amt.inputMode='decimal';amt.placeholder=auto?'Auto':'Amount';amt.value=amount;amt.addEventListener('input',updateSplitStatus);const rem=document.createElement('button');rem.type='button';rem.className='danger';rem.textContent='×';rem.onclick=()=>{row.remove();ensureAutoLast();updateSplitStatus()};bot.append(amt,rem);row.append(top,bot);$('splitRows').appendChild(row);ensureAutoLast();updateSplitStatus();
+}
+function ensureAutoLast(){const rows=[...document.querySelectorAll('#splitRows .splitRow')];if(!rows.length)return;rows.forEach(r=>{r.classList.remove('autoRow');r.querySelector('.splitAmt').readOnly=false});const last=rows.at(-1);last.classList.add('autoRow');last.querySelector('.splitAmt').readOnly=true}
+function updateSplitStatus(){const x=expenses.find(e=>e.id===splitExpenseId);if(!x)return;const rows=[...document.querySelectorAll('#splitRows .splitRow')];if(!rows.length)return;ensureAutoLast();const total=Number(x.receiptTotal||x.amount),entered=rows.slice(0,-1).reduce((s,r)=>s+(+r.querySelector('.splitAmt').value||0),0),rem=Math.round((total-entered)*100)/100;rows.at(-1).querySelector('.splitAmt').value=rem>=0?rem.toFixed(2):'0.00';$('splitStatus').textContent=rem<0?money(-rem)+' over the receipt total':'Last allocation automatically gets '+money(Math.max(0,rem))}
+function saveSplit(e){
+ e.preventDefault();const x=expenses.find(e=>e.id===splitExpenseId);if(!x)return;const rows=[...document.querySelectorAll('#splitRows .splitRow')];if(rows.length<2){alert('Add at least two allocations.');return}updateSplitStatus();
+ const total=Number(x.receiptTotal||x.amount),pieces=rows.filter(r=>(+r.querySelector('.splitAmt').value||0)>0);if(pieces.length<2){alert('Add at least two amounts.');return}
+ const sum=pieces.reduce((s,r)=>s+(+r.querySelector('.splitAmt').value||0),0);if(Math.abs(sum-total)>.01){alert('Split amounts must equal '+money(total)+'.');return}
+ const related=expenses.filter(z=>z.receiptId&&x.receiptId&&z.receiptId===x.receiptId);const removeIds=new Set(related.length>1?related.map(z=>z.id):[x.id]);const base=Date.now();
+ const repl=pieces.map((r,i)=>{const purpose=r.querySelector('.splitPurpose').value;return{id:base+i,amount:+r.querySelector('.splitAmt').value,category:r.querySelector('.splitCat').value,purpose,who:x.who||'',payment:x.payment||'',notes:x.notes||'',taxDeductible:purpose!=='Personal / Household',merchant:x.merchant,date:x.date,receiptId:x.receiptId||'',receiptTotal:total,split:true}});
+ expenses=expenses.filter(z=>!removeIds.has(z.id));expenses.unshift(...repl);saveMeta();$('splitDialog').close();render();
+}
+function del(id){if(confirm('Delete this allocation/transaction?')){expenses=expenses.filter(x=>x.id!==id);saveMeta();render()}}
+
+async function viewReceipt(id){currentReceiptId=id;const data=await getReceipt(id);if(!data){alert('No saved receipt image was found.');return}$('receiptFull').src=data;$('receiptDialog').showModal()}
+async function saveCurrentReceipt(){const data=await getReceipt(currentReceiptId);if(!data)return;const blob=dataURLtoBlob(data);const file=new File([blob],'SpendSnap_Receipt.jpg',{type:'image/jpeg'});if(navigator.share&&navigator.canShare?.({files:[file]})){try{await navigator.share({files:[file],title:'SpendSnap receipt'});return}catch(_){}}downloadBlob('SpendSnap_Receipt.jpg',blob)}
+function dataURLtoBlob(data){const [head,b64]=data.split(',');const mime=(head.match(/:(.*?);/)||[])[1]||'image/jpeg',bin=atob(b64),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return new Blob([u],{type:mime})}
+
+function changeMonth(delta){viewDate=new Date(viewDate.getFullYear(),viewDate.getMonth()+delta,1);filtered=null;render()}
+function currentMonthRows(){const ym=`${viewDate.getFullYear()}-${String(viewDate.getMonth()+1).padStart(2,'0')}`;return expenses.filter(x=>x.date?.startsWith(ym))}
+function uniqueReceiptCount(rows){return new Set(rows.map(receiptKey).filter(Boolean)).size}
+function render(){
+ const m=currentMonthRows(),shown=filtered||m,monthLabel=viewDate.toLocaleDateString('en-US',{month:'long',year:'numeric'});$('monthName').textContent=monthLabel;
+ $('monthTotal').textContent=money(m.reduce((s,x)=>s+x.amount,0));$('businessTotal').textContent=money(m.filter(isBusiness).reduce((s,x)=>s+x.amount,0));$('personalTotal').textContent=money(m.filter(x=>!isBusiness(x)).reduce((s,x)=>s+x.amount,0));$('sipstersTotal').textContent=money(m.filter(x=>purposeOf(x)==='Sipsters').reduce((s,x)=>s+x.amount,0));$('realEstateTotal').textContent=money(m.filter(x=>purposeOf(x)==='Real Estate').reduce((s,x)=>s+x.amount,0));$('receiptCount').textContent=uniqueReceiptCount(m);$('missingCount').textContent=m.filter(x=>!x.receiptId).length;
+ const sums={};shown.forEach(x=>sums[x.category]=(sums[x.category]||0)+Number(x.amount));const max=Math.max(1,...Object.values(sums));$('cats').innerHTML=Object.entries(sums).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`<div style="margin:10px 0"><div class="row" style="padding:0;border:0"><span>${esc(c)}</span><b>${money(v)}</b></div><div class="catbar"><i style="width:${v/max*100}%"></i></div></div>`).join('')||'<div class="muted">No matching spending.</div>';
+ const recent=shown.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).slice(0,100);$('txnTitle').textContent=filtered?'Filtered transactions':'Recent transactions';
+ $('txns').innerHTML=recent.map(x=>`<div class="row"><div><b>${esc(x.merchant||x.category)}</b><div class="muted">${esc(x.date)} · ${esc(x.category)} · ${esc(purposeOf(x))} · ${esc(whoOf(x))}${x.payment?' · '+esc(x.payment):''}${x.receiptId?' · 🧾':' · ⚠️ no receipt'}</div>${x.notes?`<div class="muted">${esc(x.notes)}</div>`:''}</div><div style="text-align:right;min-width:110px"><div class="amt">${money(x.amount)}</div>${x.receiptId?`<button class="linkbtn" onclick="viewReceipt('${x.receiptId}')">receipt</button> `:''}<button class="linkbtn" onclick="editExpense(${x.id})">edit</button> <button class="linkbtn" onclick="openSplit(${x.id})">split</button> <button class="danger" onclick="del(${x.id})">delete</button></div></div>`).join('')||'<div class="muted">No matching transactions.</div>';
+ renderPayments();
+}
+function filteredRows(){
+ const from=$('fFrom').value,to=$('fTo').value,p=$('fPurpose').value,w=$('fWho').value,c=$('fCategory').value,pay=$('fPayment').value.trim().toLowerCase(),rec=$('fReceipt').value,tax=$('fTax').value,q=$('fText').value.trim().toLowerCase();
+ return expenses.filter(x=>(!from||x.date>=from)&&(!to||x.date<=to)&&(!p||purposeOf(x)===p)&&(!w||(w==='Household'?whoOf(x)==='Household':whoOf(x)===w))&&(!c||x.category===c)&&(!pay||(x.payment||'').toLowerCase().includes(pay))&&(!rec||(rec==='yes'?!!x.receiptId:!x.receiptId))&&(!tax||(tax==='yes'?isBusiness(x):!isBusiness(x)))&&(!q||((x.merchant||'')+' '+(x.notes||'')).toLowerCase().includes(q)));
+}
+function applyFilters(){filtered=filteredRows();const total=filtered.reduce((s,x)=>s+Number(x.amount),0),receipts=uniqueReceiptCount(filtered),missing=filtered.filter(x=>!x.receiptId).length;$('filterSummary').textContent=`${filtered.length} allocations · ${money(total)} · ${receipts} receipts · ${missing} missing receipts`;$('exportFilteredBtn').style.display='block';render()}
+function clearFilters(){['fFrom','fTo','fPurpose','fWho','fCategory','fPayment','fReceipt','fTax','fText'].forEach(id=>$(id).value='');filtered=null;$('filterSummary').textContent='';$('exportFilteredBtn').style.display='none';render()}
+
+function csvCell(v){return '"'+String(v??'').replace(/"/g,'""')+'"'}
+function receiptFilename(x){return `${x.date||'undated'}_${safeName(x.merchant||x.category)}_${Number(x.receiptTotal??x.amount).toFixed(2)}_${(x.receiptId||'').slice(-6)}.jpg`}
+function csvFor(rows){
+ const head=['Date','Store','Category','Purpose','Who','Payment Method','Notes','Amount','Business / Tax Expense?','Receipt Saved?','Receipt File','Split Receipt','Original Receipt Total'];
+ const out=[head];rows.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(x=>out.push([x.date,x.merchant||'',x.category||'',purposeOf(x),whoOf(x),x.payment||'',x.notes||'',Number(x.amount).toFixed(2),isBusiness(x)?'Yes':'No',x.receiptId?'Yes':'No',x.receiptId?receiptFilename(x):'',x.split?'Yes':'No',Number(x.receiptTotal??x.amount).toFixed(2)]));return '\uFEFF'+out.map(r=>r.map(csvCell).join(',')).join('\r\n')
+}
+function downloadBlob(name,blob){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}
+function downloadFile(name,content,type){downloadBlob(name,new Blob([content],{type}))}
+function exportExcel(useFiltered=false){const rows=useFiltered?(filtered||filteredRows()):expenses;downloadFile('SpendSnap_Transactions.csv',csvFor(rows),'text/csv;charset=utf-8')}
+async function exportPackage(useFiltered=false){
+ const rows=useFiltered?(filtered||filteredRows()):expenses;if(!rows.length){alert('No matching transactions to export.');return}
+ if(!window.JSZip){alert('The ZIP exporter could not load. Try again while connected to the internet.');return}
+ const zip=new JSZip();zip.file('SpendSnap_Transactions.csv',csvFor(rows));const folder=zip.folder('Receipts'),ids=new Set();let count=0;
+ for(const x of rows){if(!x.receiptId||ids.has(x.receiptId))continue;ids.add(x.receiptId);const data=await getReceipt(x.receiptId);if(data){const first=rows.find(z=>z.receiptId===x.receiptId)||x;folder.file(receiptFilename(first),data.split(',')[1],{base64:true});count++}}
+ zip.file('README.txt',`SpendSnap V17 export\nTransactions/allocations: ${rows.length}\nUnique receipt images: ${count}\nA split receipt appears on multiple spreadsheet rows but the receipt image is included only once.\n`);
+ const blob=await zip.generateAsync({type:'blob'});downloadBlob(`SpendSnap_Export_${today()}.zip`,blob)
+}
+async function exportBackup(){
+ const receipts=await allReceipts();const data={app:'SpendSnap',version:17,exportedAt:new Date().toISOString(),expenses,receipts};downloadFile('SpendSnap_Backup_V17.json',JSON.stringify(data),'application/json')
+}
+function restoreBackup(ev){const file=ev.target.files?.[0];if(!file)return;const r=new FileReader();r.onload=async()=>{try{const data=JSON.parse(r.result);if(!data||!Array.isArray(data.expenses))throw Error();if(!confirm(`Restore ${data.expenses.length} records? This replaces the transaction data currently in SpendSnap.`))return;expenses=data.expenses;if(Array.isArray(data.receipts))for(const rec of data.receipts)await putReceipt(rec.id,rec.data);saveMeta();await migrateV14Receipts();render();alert('SpendSnap backup restored.')}catch(_){alert('That file is not a valid SpendSnap backup.')}ev.target.value=''};r.readAsText(file)}
+
+(async()=>{await migrateV14Receipts();renderPayments();render()})();
+</script>
+<script>
+if('serviceWorker'in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').then(r=>r.update()).catch(()=>{}))}
+</script>
+</body></html>
